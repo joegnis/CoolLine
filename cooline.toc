@@ -1,5 +1,9 @@
 ## Interface: 11200
 ## Title: cooline
+## Notes: Shows cooldowns on a single bar.
+## Author: TotalPackage, Phanx, shirsig, joegnis
+## Version: 1.0.1
+
 ## SavedVariablesPerCharacter: cooline_settings
 
 Libs\LibStub\LibStub.lua

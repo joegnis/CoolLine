@@ -1,5 +1,5 @@
 ## Interface: 11200
-## Title: cooline
+## Title: CoolLine
 ## Notes: Shows cooldowns on a single bar.
 ## Author: TotalPackage, Phanx, shirsig, joegnis
 ## Version: 1.0.1
@@ -11,4 +11,4 @@ Libs\AceCore-3.0\AceCore-3.0.xml
 Libs\AceAddon-3.0\AceAddon-3.0.xml
 
 settings.lua
-cooline.lua
+core.lua

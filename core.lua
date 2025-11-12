@@ -1,4 +1,4 @@
-local function get_keys_sorted_by_value(tbl, sortFunction)
+local function GetKeysSortedByValue(tbl, sortFunction)
 	local keys = {}
 	for key in pairs(tbl) do
 		table.insert(keys, key)
@@ -11,7 +11,7 @@ local function get_keys_sorted_by_value(tbl, sortFunction)
 	return keys
 end
 
-local function hyperlink_name(hyperlink)
+local function HyperlinkName(hyperlink)
 	local _, _, name = strfind(hyperlink, '|Hitem:%d+:%d+:%d+:%d+|h[[]([^]]+)[]]|h')
 	return name
 end
@@ -132,7 +132,7 @@ function TimelineUI:enable()
 	self.overlay = overlay
 
 	-- Dragging
-	local function on_drag_stop()
+	local function OnDragStop()
 		frame:StopMovingOrSizing()
 		local x, y = frame:GetCenter()
 		local ux, uy = UIParent:GetCenter()
@@ -145,24 +145,24 @@ function TimelineUI:enable()
 		frame:StartMoving()
 	end)
 	frame:SetScript('OnDragStop', function()
-		on_drag_stop()
+		OnDragStop()
 	end)
 	frame:SetScript('OnUpdate', function()
 		frame:EnableMouse(IsAltKeyDown())
 		if not IsAltKeyDown() and state.is_dragging then
-			on_drag_stop()
+			OnDragStop()
 		end
-		self:on_update(false)
+		self:OnUpdate(false)
 	end)
 
 	-- Text labels for time markers
-	self:label('0', 0, 'Left')
-	self:label('1', self.section)
-	self:label('3', self.section * 2)
-	self:label('10', self.section * 3)
-	self:label('30', self.section * 4)
-	self:label('2m', self.section * 5)
-	self:label('6m', self.section * 6, 'Right')
+	self:Label('0', 0, 'Left')
+	self:Label('1', self.section)
+	self:Label('3', self.section * 2)
+	self:Label('10', self.section * 3)
+	self:Label('30', self.section * 4)
+	self:Label('2m', self.section * 5)
+	self:Label('6m', self.section * 6, 'Right')
 
 	-- Events
 	frame:RegisterEvent('VARIABLES_LOADED')
@@ -170,17 +170,17 @@ function TimelineUI:enable()
 	frame:RegisterEvent('BAG_UPDATE_COOLDOWN')
 	frame:SetScript('OnEvent', function()
 		if event == 'VARIABLES_LOADED' or event == 'BAG_UPDATE_COOLDOWN' or event == 'SPELL_UPDATE_COOLDOWN' then
-			self:detect_cooldowns()
-			self:on_update(true)
+			self:DetectCooldowns()
+			self:OnUpdate(true)
 		end
 	end)
 
-	self:detect_cooldowns()
+	self:DetectCooldowns()
 	frame:Show()
 end
 
 ---@param is_force boolean
-function TimelineUI:on_update(is_force)
+function TimelineUI:OnUpdate(is_force)
 	local state = self.state
 
 	if GetTime() - state.last_update < state.update_threshold and not is_force then return end
@@ -201,9 +201,9 @@ function TimelineUI:on_update(is_force)
 		if time_left < -1 then
 			state.update_threshold = min(state.update_threshold, 0.2)
 			state.is_active = true
-			self:clear_cooldown(name)
+			self:ClearCooldown(name)
 		elseif time_left < 0 then
-			self:update_cooldown(name, aura, 0, to_re_level)
+			self:UpdateCooldown(name, aura, 0, to_re_level)
 			aura_frame:SetAlpha(1 + time_left) -- fades
 		elseif time_left < 0.3 then
 			state.update_threshold = min(state.update_threshold, 0)
@@ -211,35 +211,35 @@ function TimelineUI:on_update(is_force)
 				5 -- icon_size + icon_size * (0.3 - time_left) / 0.2
 			aura_frame:SetWidth(size)
 			aura_frame:SetHeight(size)
-			self:update_cooldown(name, aura, self.section * time_left, to_re_level)
+			self:UpdateCooldown(name, aura, self.section * time_left, to_re_level)
 		elseif time_left < 1 then
 			state.update_threshold = min(state.update_threshold, 0)
-			self:update_cooldown(name, aura, self.section * time_left, to_re_level)
+			self:UpdateCooldown(name, aura, self.section * time_left, to_re_level)
 		elseif time_left < 3 then
 			state.update_threshold = min(state.update_threshold, 0.02)
-			self:update_cooldown(name, aura, self.section * (time_left + 1) * 0.5, to_re_level)
+			self:UpdateCooldown(name, aura, self.section * (time_left + 1) * 0.5, to_re_level)
 		elseif time_left < 10 then
 			state.update_threshold = min(state.update_threshold, time_left > 4 and 0.05 or 0.02)
-			self:update_cooldown(name, aura, self.section * (time_left + 11) * 0.14286,
+			self:UpdateCooldown(name, aura, self.section * (time_left + 11) * 0.14286,
 				to_re_level) -- 2 + (time_left - 3) / 7
 		elseif time_left < 30 then
 			state.update_threshold = min(state.update_threshold, 0.06)
-			self:update_cooldown(name, aura, self.section * (time_left + 50) * 0.05, to_re_level) -- 3 + (time_left - 10) / 20
+			self:UpdateCooldown(name, aura, self.section * (time_left + 50) * 0.05, to_re_level) -- 3 + (time_left - 10) / 20
 		elseif time_left < 120 then
 			state.update_threshold = min(state.update_threshold, 0.18)
-			self:update_cooldown(name, aura, self.section * (time_left + 330) * 0.011111, to_re_level) -- 4 + (time_left - 30) / 90
+			self:UpdateCooldown(name, aura, self.section * (time_left + 330) * 0.011111, to_re_level) -- 4 + (time_left - 30) / 90
 		elseif time_left < 360 then
 			state.update_threshold = min(state.update_threshold, 1.2)
-			self:update_cooldown(name, aura, self.section * (time_left + 1080) * 0.0041667, to_re_level) -- 5 + (time_left - 120) / 240
+			self:UpdateCooldown(name, aura, self.section * (time_left + 1080) * 0.0041667, to_re_level) -- 5 + (time_left - 120) / 240
 			aura_frame:SetAlpha(COOLINE_THEME.active_alpha)
 		else
-			self:update_cooldown(name, aura, 6 * self.section, to_re_level)
+			self:UpdateCooldown(name, aura, 6 * self.section, to_re_level)
 		end
 	end
 	self.frame:SetAlpha(state.is_active and COOLINE_THEME.active_alpha or COOLINE_THEME.inactive_alpha)
 end
 
-function TimelineUI:start_cooldown(name, texture, start_time, duration, is_spell)
+function TimelineUI:StartCooldown(name, texture, start_time, duration, is_spell)
 	for _, ignored_name in COOLINE_IGNORE_LIST do
 		if strupper(name) == strupper(ignored_name) then
 			return
@@ -274,9 +274,9 @@ end
 ---@param aura CooldownAura
 ---@param position number
 ---@param to_re_level boolean
-function TimelineUI:update_cooldown(name, aura, position, to_re_level)
+function TimelineUI:UpdateCooldown(name, aura, position, to_re_level)
 	if aura.end_time - GetTime() < COOLINE_THEME.threshold then
-		local sorted = get_keys_sorted_by_value(self.auras, function(a, b) return a.end_time > b.end_time end)
+		local sorted = GetKeysSortedByValue(self.auras, function(a, b) return a.end_time > b.end_time end)
 		for i, k in ipairs(sorted) do
 			if name == k then
 				aura.frame:SetFrameLevel(i + 2)
@@ -288,10 +288,10 @@ function TimelineUI:update_cooldown(name, aura, position, to_re_level)
 		end
 	end
 
-	self:place(aura.frame, position)
+	self:Place(aura.frame, position)
 end
 
-function TimelineUI:clear_cooldown(name)
+function TimelineUI:ClearCooldown(name)
 	local auras = self.auras
 	if auras[name] then
 		auras[name].frame:Hide()
@@ -300,7 +300,7 @@ function TimelineUI:clear_cooldown(name)
 	end
 end
 
-function TimelineUI:detect_cooldowns()
+function TimelineUI:DetectCooldowns()
 	-- Finds cooldowns on items in bags
 	for bag_id = 0, 4 do
 		local bag = GetBagName(bag_id)
@@ -308,9 +308,9 @@ function TimelineUI:detect_cooldowns()
 			for slot = 1, GetContainerNumSlots(bag_id) do
 				local start_time, duration, enabled = GetContainerItemCooldown(bag_id, slot)
 				if enabled == 1 then
-					local name = hyperlink_name(GetContainerItemLink(bag_id, slot))
+					local name = HyperlinkName(GetContainerItemLink(bag_id, slot))
 					if duration > 3 and duration < 3601 then
-						self:start_cooldown(
+						self:StartCooldown(
 							name,
 							GetContainerItemInfo(bag_id, slot),
 							start_time,
@@ -318,7 +318,7 @@ function TimelineUI:detect_cooldowns()
 							false
 						)
 					elseif duration == 0 then
-						self:clear_cooldown(name)
+						self:ClearCooldown(name)
 					end
 				end
 			end
@@ -329,9 +329,9 @@ function TimelineUI:detect_cooldowns()
 	for slot = 0, 19 do
 		local start_time, duration, enabled = GetInventoryItemCooldown('player', slot)
 		if enabled == 1 then
-			local name = hyperlink_name(GetInventoryItemLink('player', slot))
+			local name = HyperlinkName(GetInventoryItemLink('player', slot))
 			if duration > 3 and duration < 3601 then
-				self:start_cooldown(
+				self:StartCooldown(
 					name,
 					GetInventoryItemTexture('player', slot),
 					start_time,
@@ -339,7 +339,7 @@ function TimelineUI:detect_cooldowns()
 					false
 				)
 			elseif duration == 0 then
-				self:clear_cooldown(name)
+				self:ClearCooldown(name)
 			end
 		end
 	end
@@ -351,7 +351,7 @@ function TimelineUI:detect_cooldowns()
 		local start_time, duration, enabled = GetSpellCooldown(id, BOOKTYPE_SPELL)
 		local name = GetSpellName(id, BOOKTYPE_SPELL)
 		if enabled == 1 and duration > 2.5 then
-			self:start_cooldown(
+			self:StartCooldown(
 				name,
 				GetSpellTexture(id, BOOKTYPE_SPELL),
 				start_time,
@@ -359,7 +359,7 @@ function TimelineUI:detect_cooldowns()
 				true
 			)
 		elseif duration == 0 then
-			self:clear_cooldown(name)
+			self:ClearCooldown(name)
 		end
 	end
 end
@@ -368,7 +368,7 @@ end
 ---@param offset integer
 ---@param point FramePoint|nil
 ---@return FontString
-function TimelineUI:label(text, offset, point)
+function TimelineUI:Label(text, offset, point)
 	-- Create a font string as a child of overlay
 	local fs = self.overlay:CreateFontString(nil, 'OVERLAY')
 	fs:SetFont(COOLINE_THEME.font, COOLINE_THEME.font_size)
@@ -399,14 +399,14 @@ function TimelineUI:label(text, offset, point)
 	else
 		fs:SetJustifyH('Center')
 	end
-	self:place(fs, offset, point)
+	self:Place(fs, offset, point)
 	return fs
 end
 
 ---@param frame Frame|FontString
 ---@param offset number
 ---@param point FramePoint|nil
-function TimelineUI:place(frame, offset, point)
+function TimelineUI:Place(frame, offset, point)
 	if COOLINE_THEME.vertical then
 		if COOLINE_THEME.reverse then
 			frame:SetPoint(point or 'Center', self.frame, 'Top', 0, -offset)

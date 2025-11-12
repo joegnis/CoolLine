@@ -2,5 +2,9 @@
 ## Title: cooline
 ## SavedVariablesPerCharacter: cooline_settings
 
+Libs\LibStub\LibStub.lua
+Libs\AceCore-3.0\AceCore-3.0.xml
+Libs\AceAddon-3.0\AceAddon-3.0.xml
+
 settings.lua
 cooline.lua

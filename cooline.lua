@@ -4,7 +4,7 @@ local state = {
 	y = -240,
 	-- to dynamically adjust update frequency based on remaining cooldown
 	-- TODO: separate threshold for each aura
-	update_threshold = 0,
+	update_threshold = 0.0,
 	last_update = GetTime(),
 	to_re_level = false,
 	last_re_level = GetTime(),
@@ -38,11 +38,9 @@ end
 ---@field end_time number
 local CooldownAura = {}
 
----@return CooldownAura
 ---@param parent Frame
 function CooldownAura:new(parent)
-	local inst = {}
-	setmetatable(inst, { __index = CooldownAura })
+	local inst = setmetatable({}, { __index = CooldownAura })
 
 	local frame = CreateFrame('Frame', nil, parent)
 	frame:SetBackdrop({ bgFile = [[Interface\AddOns\cooline\backdrop.tga]] })
@@ -119,9 +117,6 @@ function TimelineUI:new()
 	inst.overlay = overlay
 
 	-- Events
-	frame:RegisterEvent('VARIABLES_LOADED')
-	frame:RegisterEvent('SPELL_UPDATE_COOLDOWN')
-	frame:RegisterEvent('BAG_UPDATE_COOLDOWN')
 	frame:SetScript('OnEvent', function()
 		if event == 'VARIABLES_LOADED' or event == 'BAG_UPDATE_COOLDOWN' or event == 'SPELL_UPDATE_COOLDOWN' then
 			inst:detect_cooldowns()
@@ -162,7 +157,22 @@ function TimelineUI:new()
 	inst:label('2m', inst.section * 5)
 	inst:label('6m', inst.section * 6, 'Right')
 
+	frame:Hide()
+
 	return inst
+end
+
+function TimelineUI:enable()
+	self.frame:RegisterEvent('VARIABLES_LOADED')
+	self.frame:RegisterEvent('SPELL_UPDATE_COOLDOWN')
+	self.frame:RegisterEvent('BAG_UPDATE_COOLDOWN')
+	self:detect_cooldowns()
+	self.frame:Show()
+end
+
+function TimelineUI:disable()
+	self.frame:UnregisterAllEvents()
+	self.frame:Hide()
 end
 
 ---@param is_force boolean
@@ -403,5 +413,24 @@ function TimelineUI:place(frame, offset, point)
 	end
 end
 
-TimelineUI:new()
-DEFAULT_CHAT_FRAME:AddMessage('|c00ffff00' .. COOLINE_LOADED_MESSAGE .. '|r');
+CoolLineAddon = LibStub("AceAddon-3.0"):NewAddon("CoolLine")
+
+---@type TimelineUI?
+local main_ui = nil
+
+function CoolLineAddon:OnInitialize()
+	main_ui = TimelineUI:new()
+	DEFAULT_CHAT_FRAME:AddMessage('|c00ffff00' .. COOLINE_LOADED_MESSAGE .. '|r');
+end
+
+function CoolLineAddon:OnEnable()
+	if main_ui then
+		main_ui:enable()
+	end
+end
+
+function CoolLineAddon:OnDisable()
+	if main_ui then
+		main_ui:disable()
+	end
+end

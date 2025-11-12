@@ -73,17 +73,21 @@ function TimelineUI:new()
 	local inst = {}
 	setmetatable(inst, { __index = TimelineUI })
 
-	inst.section = (COOLINE_THEME.vertical and COOLINE_THEME.height or COOLINE_THEME.width) / 6
-	inst.icon_size = (COOLINE_THEME.vertical and COOLINE_THEME.width or COOLINE_THEME.height) +
-		COOLINE_THEME.icon_outset * 2
+	inst.section = COOLINE_THEME.width / 6
+	inst.icon_size = COOLINE_THEME.height + COOLINE_THEME.icon_outset * 2
 	inst.auras = {}
 
 	local frame = CreateFrame('Button', nil, UIParent)
 	inst.frame = frame
 	frame:SetClampedToScreen(true)
 	frame:SetMovable(true)
-	frame:SetWidth(COOLINE_THEME.width)
-	frame:SetHeight(COOLINE_THEME.height)
+	if COOLINE_THEME.vertical then
+		frame:SetWidth(COOLINE_THEME.height)
+		frame:SetHeight(COOLINE_THEME.width)
+	else
+		frame:SetWidth(COOLINE_THEME.width)
+		frame:SetHeight(COOLINE_THEME.height)
+	end
 	frame:SetPoint('Center', state.x, state.y)
 
 	-- Background texture
@@ -343,9 +347,10 @@ end
 
 ---@param text string
 ---@param offset integer
----@param just "Left"|"Right"|"Center"|nil
+---@param point FramePoint|nil
 ---@return FontString
-function TimelineUI:label(text, offset, just)
+function TimelineUI:label(text, offset, point)
+	-- Create a font string as a child of overlay
 	local fs = self.overlay:CreateFontString(nil, 'OVERLAY')
 	fs:SetFont(COOLINE_THEME.font, COOLINE_THEME.font_size)
 	fs:SetTextColor(unpack(COOLINE_THEME.font_color))
@@ -354,75 +359,46 @@ function TimelineUI:label(text, offset, just)
 	fs:SetHeight(COOLINE_THEME.font_size + 2)
 	fs:SetShadowColor(unpack(COOLINE_THEME.bg_color))
 	fs:SetShadowOffset(1, -1)
-	---@type string?
-	local place_just = just
-	if just then
+	if point then
 		fs:ClearAllPoints()
 		if COOLINE_THEME.vertical then
 			fs:SetJustifyH('Center')
 			if COOLINE_THEME.reverse then
-				place_just = (just == 'Left' and 'Top') or 'Bottom'
+				point = (point == 'Left' and 'Top') or 'Bottom'
 			else
-				place_just = (just == 'Left' and 'Bottom') or 'Top'
+				point = (point == 'Left' and 'Bottom') or 'Top'
 			end
-		elseif COOLINE_THEME.reverse then
-			just = (just == 'Left' and 'Right') or 'Left'
-			offset = offset + ((just == 'Left' and 1) or -1)
-			fs:SetJustifyH(just)
 		else
-			offset = offset + ((just == 'Left' and 1) or -1)
-			fs:SetJustifyH(just)
+			if COOLINE_THEME.reverse then
+				point = (point == 'Left' and 'Right') or 'Left'
+				offset = offset + ((point == 'Left' and 1) or -1)
+			else
+				offset = offset + ((point == 'Left' and 1) or -1)
+			end
+			fs:SetJustifyH(point)
 		end
 	else
 		fs:SetJustifyH('Center')
 	end
-	self:place(fs, offset, place_just)
+	self:place(fs, offset, point)
 	return fs
 end
 
 ---@param frame Frame|FontString
 ---@param offset number
----@param just FramePoint|nil
-function TimelineUI:place_H(frame, offset, just)
-	frame:SetPoint(just or 'Center', self.frame, 'Left', offset, 0)
-end
-
----@param frame Frame|FontString
----@param offset number
----@param just FramePoint|nil
-function TimelineUI:place_HR(frame, offset, just)
-	frame:SetPoint(just or 'Center', self.frame, 'Left', COOLINE_THEME.width - offset, 0)
-end
-
----@param frame Frame|FontString
----@param offset number
----@param just FramePoint|nil
-function TimelineUI:place_V(frame, offset, just)
-	frame:SetPoint(just or 'Center', self.frame, 'Bottom', 0, offset)
-end
-
----@param frame Frame|FontString
----@param offset number
----@param just FramePoint|nil
-function TimelineUI:place_VR(frame, offset, just)
-	frame:SetPoint(just or 'Center', self.frame, 'Bottom', 0, COOLINE_THEME.height - offset)
-end
-
----@param frame Frame|FontString
----@param offset number
----@param just FramePoint|nil
-function TimelineUI:place(frame, offset, just)
+---@param point FramePoint|nil
+function TimelineUI:place(frame, offset, point)
 	if COOLINE_THEME.vertical then
 		if COOLINE_THEME.reverse then
-			self:place_VR(frame, offset, just)
+			frame:SetPoint(point or 'Center', self.frame, 'Top', 0, -offset)
 		else
-			self:place_V(frame, offset, just)
+			frame:SetPoint(point or 'Center', self.frame, 'Bottom', 0, offset)
 		end
 	else
 		if COOLINE_THEME.reverse then
-			self:place_HR(frame, offset, just)
+			frame:SetPoint(point or 'Center', self.frame, 'Right', -offset, 0)
 		else
-			self:place_H(frame, offset, just)
+			frame:SetPoint(point or 'Center', self.frame, 'Left', offset, 0)
 		end
 	end
 end

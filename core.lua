@@ -152,7 +152,7 @@ function TimelineUI:enable()
 		if not IsAltKeyDown() and state.is_dragging then
 			OnDragStop()
 		end
-		self:OnUpdate(false)
+		self:Update(false)
 	end)
 
 	-- Text labels for time markers
@@ -171,7 +171,7 @@ function TimelineUI:enable()
 	frame:SetScript('OnEvent', function()
 		if event == 'VARIABLES_LOADED' or event == 'BAG_UPDATE_COOLDOWN' or event == 'SPELL_UPDATE_COOLDOWN' then
 			self:DetectCooldowns()
-			self:OnUpdate(true)
+			self:Update(true)
 		end
 	end)
 
@@ -180,7 +180,7 @@ function TimelineUI:enable()
 end
 
 ---@param is_force boolean
-function TimelineUI:OnUpdate(is_force)
+function TimelineUI:Update(is_force)
 	local state = self.state
 
 	if GetTime() - state.last_update < state.update_threshold and not is_force then return end
@@ -288,7 +288,7 @@ function TimelineUI:UpdateCooldown(name, aura, position, to_re_level)
 		end
 	end
 
-	self:Place(aura.frame, position)
+	self:PlaceOnBar(aura.frame, position)
 end
 
 function TimelineUI:ClearCooldown(name)
@@ -399,14 +399,15 @@ function TimelineUI:Label(text, offset, point)
 	else
 		fs:SetJustifyH('Center')
 	end
-	self:Place(fs, offset, point)
+	self:PlaceOnBar(fs, offset, point)
 	return fs
 end
 
+---Places a label or aura frame on the timeline bar
 ---@param frame Frame|FontString
 ---@param offset number
 ---@param point FramePoint|nil
-function TimelineUI:Place(frame, offset, point)
+function TimelineUI:PlaceOnBar(frame, offset, point)
 	if COOLINE_THEME.vertical then
 		if COOLINE_THEME.reverse then
 			frame:SetPoint(point or 'Center', self.frame, 'Top', 0, -offset)

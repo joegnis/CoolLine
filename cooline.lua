@@ -1,146 +1,20 @@
-local cooline = CreateFrame('Button', nil, UIParent)
-cooline:SetScript('OnEvent', function()
-	this[event]()
-end)
-cooline:RegisterEvent('VARIABLES_LOADED')
+local state = {
+	is_dragging = false,
+	x = 0,
+	y = -240,
+	-- to dynamically adjust update frequency based on remaining cooldown
+	-- TODO: separate threshold for each aura
+	update_threshold = 0,
+	last_update = GetTime(),
+	to_re_level = false,
+	last_re_level = GetTime(),
+	is_active = false,
+}
 
-cooline_settings = { x = 0, y = -240 }
-
+---@type Frame[]
 local frame_pool = {}
-local cooldowns = {}
 
-function cooline.hyperlink_name(hyperlink)
-    local _, _, name = strfind(hyperlink, '|Hitem:%d+:%d+:%d+:%d+|h[[]([^]]+)[]]|h')
-    return name
-end
-
-function cooline.detect_cooldowns()
-	
-	local function start_cooldown(name, texture, start_time, duration, is_spell)
-		for _, ignored_name in cooline_ignore_list do
-			if strupper(name) == strupper(ignored_name) then
-				return
-			end
-		end
-		
-		local end_time = start_time + duration
-			
-		for _, cooldown in pairs(cooldowns) do
-			if cooldown.end_time == end_time then
-				return
-			end
-		end
-
-		cooldowns[name] = cooldowns[name] or tremove(frame_pool) or cooline.cooldown_frame()
-		local frame = cooldowns[name]
-		frame:SetWidth(cooline.icon_size)
-		frame:SetHeight(cooline.icon_size)
-		frame.icon:SetTexture(texture)
-		if is_spell then
-			frame:SetBackdropColor(unpack(cooline_theme.spellcolor))
-		else
-			frame:SetBackdropColor(unpack(cooline_theme.nospellcolor))
-		end
-		frame:SetAlpha((end_time - GetTime() > 360) and 0.6 or 1)
-		frame.end_time = end_time
-		frame:Show()
-	end
-	
-    for bag = 0,4 do
-        if GetBagName(bag) then
-            for slot = 1, GetContainerNumSlots(bag) do
-				local start_time, duration, enabled = GetContainerItemCooldown(bag, slot)
-				if enabled == 1 then
-					local name = cooline.hyperlink_name(GetContainerItemLink(bag, slot))
-					if duration > 3 and duration < 3601 then
-						start_cooldown(
-							name,
-							GetContainerItemInfo(bag, slot),
-							start_time,
-							duration,
-							false
-						)
-					elseif duration == 0 then
-						cooline.clear_cooldown(name)
-					end
-				end
-            end
-        end
-    end
-	
-	for slot=0,19 do
-		local start_time, duration, enabled = GetInventoryItemCooldown('player', slot)
-		if enabled == 1 then
-			local name = cooline.hyperlink_name(GetInventoryItemLink('player', slot))
-			if duration > 3 and duration < 3601 then
-				start_cooldown(
-					name,
-					GetInventoryItemTexture('player', slot),
-					start_time,
-					duration,
-					false
-				)
-			elseif duration == 0 then
-				cooline.clear_cooldown(name)
-			end
-		end
-	end
-	
-	local _, _, offset, spell_count = GetSpellTabInfo(GetNumSpellTabs())
-	local total_spells = offset + spell_count
-	for id=1,total_spells do
-		local start_time, duration, enabled = GetSpellCooldown(id, BOOKTYPE_SPELL)
-		local name = GetSpellName(id, BOOKTYPE_SPELL)
-		if enabled == 1 and duration > 2.5 then
-			start_cooldown(
-				name,
-				GetSpellTexture(id, BOOKTYPE_SPELL),
-				start_time,
-				duration,
-				true
-			)
-		elseif duration == 0 then
-			cooline.clear_cooldown(name)
-		end
-	end
-	
-	cooline.on_update(true)
-end
-
-function cooline.cooldown_frame()
-	local frame = CreateFrame('Frame', nil, cooline.border)
-	frame:SetBackdrop({ bgFile=[[Interface\AddOns\cooline\backdrop.tga]] })
-	frame.icon = frame:CreateTexture(nil, 'ARTWORK')
-	frame.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-	frame.icon:SetPoint('TOPLEFT', 1, -1)
-	frame.icon:SetPoint('BOTTOMRIGHT', -1, 1)
-	return frame
-end
-
-local function place_H(this, offset, just)
-	this:SetPoint(just or 'CENTER', cooline, 'LEFT', offset, 0)
-end
-local function place_HR(this, offset, just)
-	this:SetPoint(just or 'CENTER', cooline, 'LEFT', cooline_theme.width - offset, 0)
-end
-local function place_V(this, offset, just)
-	this:SetPoint(just or 'CENTER', cooline, 'BOTTOM', 0, offset)
-end
-local function place_VR(this, offset, just)
-	this:SetPoint(just or 'CENTER', cooline, 'BOTTOM', 0, cooline_theme.height - offset)
-end
-
-function cooline.clear_cooldown(name)
-	if cooldowns[name] then
-		cooldowns[name]:Hide()
-		tinsert(frame_pool, cooldowns[name])
-		cooldowns[name] = nil
-	end
-end
-
-local relevel, throt = false, 0
-
-function getKeysSortedByValue(tbl, sortFunction)
+local function get_keys_sorted_by_value(tbl, sortFunction)
 	local keys = {}
 	for key in pairs(tbl) do
 		table.insert(keys, key)
@@ -153,182 +27,405 @@ function getKeysSortedByValue(tbl, sortFunction)
 	return keys
 end
 
-function cooline.update_cooldown(name, frame, position, tthrot, relevel)
-	throt = min(throt, tthrot)
-	
-	if frame.end_time - GetTime() < cooline_theme.treshold then
-		local sorted = getKeysSortedByValue(cooldowns, function(a, b) return a.end_time > b.end_time end)
+local function hyperlink_name(hyperlink)
+	local _, _, name = strfind(hyperlink, '|Hitem:%d+:%d+:%d+:%d+|h[[]([^]]+)[]]|h')
+	return name
+end
+
+---@class CooldownAura
+---@field frame Frame
+---@field icon Texture
+---@field end_time number
+local CooldownAura = {}
+
+---@return CooldownAura
+---@param parent Frame
+function CooldownAura:new(parent)
+	local inst = {}
+	setmetatable(inst, { __index = CooldownAura })
+
+	local frame = CreateFrame('Frame', nil, parent)
+	frame:SetBackdrop({ bgFile = [[Interface\AddOns\cooline\backdrop.tga]] })
+	local icon = frame:CreateTexture(nil, 'ARTWORK')
+	icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	icon:SetPoint('TopLeft', 1, -1)
+	icon:SetPoint('BottomRight', -1, 1)
+
+	inst.frame = frame
+	inst.icon = icon
+	inst.end_time = 0
+
+	return inst
+end
+
+---@class TimelineUI
+---@field frame Frame
+---@field background Texture
+---@field border Frame
+---@field overlay Frame
+---@field section integer
+---@field icon_size integer
+---@field auras table<string, CooldownAura>
+local TimelineUI = {}
+
+---@return TimelineUI
+function TimelineUI:new()
+	local inst = {}
+	setmetatable(inst, { __index = TimelineUI })
+
+	inst.section = (COOLINE_THEME.vertical and COOLINE_THEME.height or COOLINE_THEME.width) / 6
+	inst.icon_size = (COOLINE_THEME.vertical and COOLINE_THEME.width or COOLINE_THEME.height) +
+		COOLINE_THEME.icon_outset * 2
+	inst.auras = {}
+
+	local frame = CreateFrame('Button', nil, UIParent)
+	inst.frame = frame
+	frame:SetClampedToScreen(true)
+	frame:SetMovable(true)
+	frame:SetWidth(COOLINE_THEME.width)
+	frame:SetHeight(COOLINE_THEME.height)
+	frame:SetPoint('Center', state.x, state.y)
+
+	-- Background texture
+	local background = frame:CreateTexture(nil, 'ARTWORK')
+	background:SetTexture(COOLINE_THEME.statusbar)
+	background:SetVertexColor(unpack(COOLINE_THEME.bg_color))
+	background:SetAllPoints(frame)
+	if COOLINE_THEME.vertical then
+		background:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1)
+	else
+		background:SetTexCoord(0, 1, 0, 1)
+	end
+	inst.background = background
+
+	-- Border frame
+	local border = CreateFrame('Frame', nil, frame)
+	border:SetPoint('TopLeft', -COOLINE_THEME.border_inset, COOLINE_THEME.border_inset)
+	border:SetPoint('BottomRight', COOLINE_THEME.border_inset, -COOLINE_THEME.border_inset)
+	border:SetBackdrop({
+		edgeFile = COOLINE_THEME.border,
+		edgeSize = COOLINE_THEME.border_size,
+	})
+	border:SetBackdropBorderColor(unpack(COOLINE_THEME.border_color))
+	inst.border = border
+
+	-- Overlay frame
+	local overlay = CreateFrame('Frame', nil, border)
+	overlay:SetFrameLevel(24) -- TODO this gets changed automatically later, to 9, find out why
+	inst.overlay = overlay
+
+	-- Events
+	frame:RegisterEvent('VARIABLES_LOADED')
+	frame:RegisterEvent('SPELL_UPDATE_COOLDOWN')
+	frame:RegisterEvent('BAG_UPDATE_COOLDOWN')
+	frame:SetScript('OnEvent', function()
+		if event == 'VARIABLES_LOADED' or event == 'BAG_UPDATE_COOLDOWN' or event == 'SPELL_UPDATE_COOLDOWN' then
+			inst:detect_cooldowns()
+			inst:on_update(true)
+		end
+	end)
+
+	-- Dragging
+	local function on_drag_stop()
+		frame:StopMovingOrSizing()
+		local x, y = frame:GetCenter()
+		local ux, uy = UIParent:GetCenter()
+		state.x, state.y = floor(x - ux + 0.5), floor(y - uy + 0.5)
+		state.is_dragging = false
+	end
+	frame:RegisterForDrag('LeftButton')
+	frame:SetScript('OnDragStart', function()
+		state.is_dragging = true
+		frame:StartMoving()
+	end)
+	frame:SetScript('OnDragStop', function()
+		on_drag_stop()
+	end)
+	frame:SetScript('OnUpdate', function()
+		frame:EnableMouse(IsAltKeyDown())
+		if not IsAltKeyDown() and state.is_dragging then
+			on_drag_stop()
+		end
+		inst:on_update(false)
+	end)
+
+	-- Text labels for time markers
+	inst:label('0', 0, 'Left')
+	inst:label('1', inst.section)
+	inst:label('3', inst.section * 2)
+	inst:label('10', inst.section * 3)
+	inst:label('30', inst.section * 4)
+	inst:label('2m', inst.section * 5)
+	inst:label('6m', inst.section * 6, 'Right')
+
+	return inst
+end
+
+---@param is_force boolean
+function TimelineUI:on_update(is_force)
+	if GetTime() - state.last_update < state.update_threshold and not is_force then return end
+	state.last_update = GetTime()
+
+	state.to_re_level = false
+	if GetTime() - state.last_re_level > 0.4 then
+		state.to_re_level, state.last_re_level = true, GetTime()
+	end
+	local to_re_level = state.to_re_level
+
+	state.is_active, state.update_threshold = false, 1.5
+	for name, aura in pairs(self.auras) do
+		local aura_frame = aura.frame
+		local time_left = aura.end_time - GetTime()
+		state.is_active = state.is_active or time_left < 360
+
+		if time_left < -1 then
+			state.update_threshold = min(state.update_threshold, 0.2)
+			state.is_active = true
+			self:clear_cooldown(name)
+		elseif time_left < 0 then
+			self:update_cooldown(name, aura, 0, to_re_level)
+			aura_frame:SetAlpha(1 + time_left) -- fades
+		elseif time_left < 0.3 then
+			state.update_threshold = min(state.update_threshold, 0)
+			local size = self.icon_size * (0.5 - time_left) *
+				5 -- icon_size + icon_size * (0.3 - time_left) / 0.2
+			aura_frame:SetWidth(size)
+			aura_frame:SetHeight(size)
+			self:update_cooldown(name, aura, self.section * time_left, to_re_level)
+		elseif time_left < 1 then
+			state.update_threshold = min(state.update_threshold, 0)
+			self:update_cooldown(name, aura, self.section * time_left, to_re_level)
+		elseif time_left < 3 then
+			state.update_threshold = min(state.update_threshold, 0.02)
+			self:update_cooldown(name, aura, self.section * (time_left + 1) * 0.5, to_re_level)
+		elseif time_left < 10 then
+			state.update_threshold = min(state.update_threshold, time_left > 4 and 0.05 or 0.02)
+			self:update_cooldown(name, aura, self.section * (time_left + 11) * 0.14286,
+				to_re_level) -- 2 + (time_left - 3) / 7
+		elseif time_left < 30 then
+			state.update_threshold = min(state.update_threshold, 0.06)
+			self:update_cooldown(name, aura, self.section * (time_left + 50) * 0.05, to_re_level) -- 3 + (time_left - 10) / 20
+		elseif time_left < 120 then
+			state.update_threshold = min(state.update_threshold, 0.18)
+			self:update_cooldown(name, aura, self.section * (time_left + 330) * 0.011111, to_re_level) -- 4 + (time_left - 30) / 90
+		elseif time_left < 360 then
+			state.update_threshold = min(state.update_threshold, 1.2)
+			self:update_cooldown(name, aura, self.section * (time_left + 1080) * 0.0041667, to_re_level) -- 5 + (time_left - 120) / 240
+			aura_frame:SetAlpha(COOLINE_THEME.active_alpha)
+		else
+			self:update_cooldown(name, aura, 6 * self.section, to_re_level)
+		end
+	end
+	self.frame:SetAlpha(state.is_active and COOLINE_THEME.active_alpha or COOLINE_THEME.inactive_alpha)
+end
+
+function TimelineUI:start_cooldown(name, texture, start_time, duration, is_spell)
+	for _, ignored_name in COOLINE_IGNORE_LIST do
+		if strupper(name) == strupper(ignored_name) then
+			return
+		end
+	end
+
+	local end_time = start_time + duration
+
+	local auras = self.auras
+	for _, aura in pairs(auras) do
+		if aura.end_time == end_time then
+			return
+		end
+	end
+
+	auras[name] = auras[name] or tremove(frame_pool) or CooldownAura:new(self.border)
+	local aura = auras[name]
+	aura.frame:SetWidth(self.icon_size)
+	aura.frame:SetHeight(self.icon_size)
+	aura.icon:SetTexture(texture)
+	if is_spell then
+		aura.frame:SetBackdropColor(unpack(COOLINE_THEME.spell_color))
+	else
+		aura.frame:SetBackdropColor(unpack(COOLINE_THEME.no_spell_color))
+	end
+	aura.frame:SetAlpha((end_time - GetTime() > 360) and 0.6 or 1)
+	aura.end_time = end_time
+	aura.frame:Show()
+end
+
+---@param name string
+---@param aura CooldownAura
+---@param position number
+---@param to_re_level boolean
+function TimelineUI:update_cooldown(name, aura, position, to_re_level)
+	if aura.end_time - GetTime() < COOLINE_THEME.threshold then
+		local sorted = get_keys_sorted_by_value(self.auras, function(a, b) return a.end_time > b.end_time end)
 		for i, k in ipairs(sorted) do
 			if name == k then
-				frame:SetFrameLevel(i+2)
+				aura.frame:SetFrameLevel(i + 2)
 			end
 		end
 	else
-		if relevel then
-			frame:SetFrameLevel(random(1,5) + 2)
+		if to_re_level then
+			aura.frame:SetFrameLevel(random(1, 5) + 2)
 		end
 	end
-	
-	cooline.place(frame, position)
+
+	self:place(aura.frame, position)
 end
 
-do
-	local last_update, last_relevel = GetTime(), GetTime()
-	
-	function cooline.on_update(force)
-		if GetTime() - last_update < throt and not force then return end
-		last_update = GetTime()
-		
-		relevel = false
-		if GetTime() - last_relevel > 0.4 then
-			relevel, last_relevel = true, GetTime()
-		end
-		
-		isactive, throt = false, 1.5
-		for name, frame in pairs(cooldowns) do
-			local time_left = frame.end_time - GetTime()
-			isactive = isactive or time_left < 360
-			
-			if time_left < -1 then
-				throt = min(throt, 0.2)
-				isactive = true
-				cooline.clear_cooldown(name)
-			elseif time_left < 0 then
-				cooline.update_cooldown(name, frame, 0, 0, relevel)
-				frame:SetAlpha(1 + time_left)  -- fades
-			elseif time_left < 0.3 then
-				local size = cooline.icon_size * (0.5 - time_left) * 5  -- icon_size + icon_size * (0.3 - time_left) / 0.2
-				frame:SetWidth(size)
-				frame:SetHeight(size)
-				cooline.update_cooldown(name, frame, cooline.section * time_left, 0, relevel)
-			elseif time_left < 1 then
-				cooline.update_cooldown(name, frame, cooline.section * time_left, 0, relevel)
-			elseif time_left < 3 then
-				cooline.update_cooldown(name, frame, cooline.section * (time_left + 1) * 0.5, 0.02, relevel)  -- 1 + (time_left - 1) / 2
-			elseif time_left < 10 then
-				cooline.update_cooldown(name, frame, cooline.section * (time_left + 11) * 0.14286, time_left > 4 and 0.05 or 0.02, relevel)  -- 2 + (time_left - 3) / 7
-			elseif time_left < 30 then
-				cooline.update_cooldown(name, frame, cooline.section * (time_left + 50) * 0.05, 0.06, relevel)  -- 3 + (time_left - 10) / 20
-			elseif time_left < 120 then
-				cooline.update_cooldown(name, frame, cooline.section * (time_left + 330) * 0.011111, 0.18, relevel)  -- 4 + (time_left - 30) / 90
-			elseif time_left < 360 then
-				cooline.update_cooldown(name, frame, cooline.section * (time_left + 1080) * 0.0041667, 1.2, relevel)  -- 5 + (time_left - 120) / 240
-				frame:SetAlpha(cooline_theme.activealpha)
-			else
-				cooline.update_cooldown(name, frame, 6 * cooline.section, 2, relevel)
+function TimelineUI:clear_cooldown(name)
+	local auras = self.auras
+	if auras[name] then
+		auras[name].frame:Hide()
+		tinsert(frame_pool, auras[name])
+		auras[name] = nil
+	end
+end
+
+function TimelineUI:detect_cooldowns()
+	for bag_id = 0, 4 do
+		local bag = GetBagName(bag_id)
+		if bag then
+			for slot = 1, GetContainerNumSlots(bag_id) do
+				local start_time, duration, enabled = GetContainerItemCooldown(bag_id, slot)
+				if enabled == 1 then
+					local name = hyperlink_name(GetContainerItemLink(bag_id, slot))
+					if duration > 3 and duration < 3601 then
+						self:start_cooldown(
+							name,
+							GetContainerItemInfo(bag_id, slot),
+							start_time,
+							duration,
+							false
+						)
+					elseif duration == 0 then
+						self:clear_cooldown(name)
+					end
+				end
 			end
 		end
-		cooline:SetAlpha(isactive and cooline_theme.activealpha or cooline_theme.inactivealpha)
+	end
+
+	for slot = 0, 19 do
+		local start_time, duration, enabled = GetInventoryItemCooldown('player', slot)
+		if enabled == 1 then
+			local name = hyperlink_name(GetInventoryItemLink('player', slot))
+			if duration > 3 and duration < 3601 then
+				self:start_cooldown(
+					name,
+					GetInventoryItemTexture('player', slot),
+					start_time,
+					duration,
+					false
+				)
+			elseif duration == 0 then
+				self:clear_cooldown(name)
+			end
+		end
+	end
+
+	local _, _, offset, spell_count = GetSpellTabInfo(GetNumSpellTabs())
+	local total_spells = offset + spell_count
+	for id = 1, total_spells do
+		local start_time, duration, enabled = GetSpellCooldown(id, BOOKTYPE_SPELL)
+		local name = GetSpellName(id, BOOKTYPE_SPELL)
+		if enabled == 1 and duration > 2.5 then
+			self:start_cooldown(
+				name,
+				GetSpellTexture(id, BOOKTYPE_SPELL),
+				start_time,
+				duration,
+				true
+			)
+		elseif duration == 0 then
+			self:clear_cooldown(name)
+		end
 	end
 end
 
-function cooline.label(text, offset, just)
-	local fs = cooline.overlay:CreateFontString(nil, 'OVERLAY')
-	fs:SetFont(cooline_theme.font, cooline_theme.fontsize)
-	fs:SetTextColor(unpack(cooline_theme.fontcolor))
+---@param text string
+---@param offset integer
+---@param just "Left"|"Right"|"Center"|nil
+---@return FontString
+function TimelineUI:label(text, offset, just)
+	local fs = self.overlay:CreateFontString(nil, 'OVERLAY')
+	fs:SetFont(COOLINE_THEME.font, COOLINE_THEME.font_size)
+	fs:SetTextColor(unpack(COOLINE_THEME.font_color))
 	fs:SetText(text)
-	fs:SetWidth(cooline_theme.fontsize * 3)
-	fs:SetHeight(cooline_theme.fontsize + 2)
-	fs:SetShadowColor(unpack(cooline_theme.bgcolor))
+	fs:SetWidth(COOLINE_THEME.font_size * 3)
+	fs:SetHeight(COOLINE_THEME.font_size + 2)
+	fs:SetShadowColor(unpack(COOLINE_THEME.bg_color))
 	fs:SetShadowOffset(1, -1)
+	---@type string?
+	local place_just = just
 	if just then
 		fs:ClearAllPoints()
-		if cooline_theme.vertical then
-			fs:SetJustifyH('CENTER')
-			just = cooline_theme.reverse and ((just == 'LEFT' and 'TOP') or 'BOTTOM') or ((just == 'LEFT' and 'BOTTOM') or 'TOP')
-		elseif cooline_theme.reverse then
-			just = (just == 'LEFT' and 'RIGHT') or 'LEFT'
-			offset = offset + ((just == 'LEFT' and 1) or -1)
+		if COOLINE_THEME.vertical then
+			fs:SetJustifyH('Center')
+			if COOLINE_THEME.reverse then
+				place_just = (just == 'Left' and 'Top') or 'Bottom'
+			else
+				place_just = (just == 'Left' and 'Bottom') or 'Top'
+			end
+		elseif COOLINE_THEME.reverse then
+			just = (just == 'Left' and 'Right') or 'Left'
+			offset = offset + ((just == 'Left' and 1) or -1)
 			fs:SetJustifyH(just)
 		else
-			offset = offset + ((just == 'LEFT' and 1) or -1)
+			offset = offset + ((just == 'Left' and 1) or -1)
 			fs:SetJustifyH(just)
 		end
 	else
-		fs:SetJustifyH('CENTER')
+		fs:SetJustifyH('Center')
 	end
-	cooline.place(fs, offset, just)
+	self:place(fs, offset, place_just)
 	return fs
 end
 
-function cooline.VARIABLES_LOADED()
+---@param frame Frame|FontString
+---@param offset number
+---@param just FramePoint|nil
+function TimelineUI:place_H(frame, offset, just)
+	frame:SetPoint(just or 'Center', self.frame, 'Left', offset, 0)
+end
 
-	cooline:SetClampedToScreen(true)
-	cooline:SetMovable(true)
-	cooline:RegisterForDrag('LeftButton')
-	
-	function cooline:on_drag_stop()
-		this:StopMovingOrSizing()
-		local x, y = this:GetCenter()
-		local ux, uy = UIParent:GetCenter()
-		cooline_settings.x, cooline_settings.y = floor(x - ux + 0.5), floor(y - uy + 0.5)
-		this.dragging = false
-	end
-	cooline:SetScript('OnDragStart', function()
-		this.dragging = true
-		this:StartMoving()
-	end)
-	cooline:SetScript('OnDragStop', function()
-		this:on_drag_stop()
-	end)
-	cooline:SetScript('OnUpdate', function()
-		this:EnableMouse(IsAltKeyDown())
-		if not IsAltKeyDown() and this.dragging then
-			this:on_drag_stop()
+---@param frame Frame|FontString
+---@param offset number
+---@param just FramePoint|nil
+function TimelineUI:place_HR(frame, offset, just)
+	frame:SetPoint(just or 'Center', self.frame, 'Left', COOLINE_THEME.width - offset, 0)
+end
+
+---@param frame Frame|FontString
+---@param offset number
+---@param just FramePoint|nil
+function TimelineUI:place_V(frame, offset, just)
+	frame:SetPoint(just or 'Center', self.frame, 'Bottom', 0, offset)
+end
+
+---@param frame Frame|FontString
+---@param offset number
+---@param just FramePoint|nil
+function TimelineUI:place_VR(frame, offset, just)
+	frame:SetPoint(just or 'Center', self.frame, 'Bottom', 0, COOLINE_THEME.height - offset)
+end
+
+---@param frame Frame|FontString
+---@param offset number
+---@param just FramePoint|nil
+function TimelineUI:place(frame, offset, just)
+	if COOLINE_THEME.vertical then
+		if COOLINE_THEME.reverse then
+			self:place_VR(frame, offset, just)
+		else
+			self:place_V(frame, offset, just)
 		end
-		cooline.on_update()
-	end)
-
-	cooline:SetWidth(cooline_theme.width)
-	cooline:SetHeight(cooline_theme.height)
-	cooline:SetPoint('CENTER', cooline_settings.x, cooline_settings.y)
-	
-	cooline.bg = cooline:CreateTexture(nil, 'ARTWORK')
-	cooline.bg:SetTexture(cooline_theme.statusbar)
-	cooline.bg:SetVertexColor(unpack(cooline_theme.bgcolor))
-	cooline.bg:SetAllPoints(cooline)
-	if cooline_theme.vertical then
-		cooline.bg:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1)
 	else
-		cooline.bg:SetTexCoord(0, 1, 0, 1)
+		if COOLINE_THEME.reverse then
+			self:place_HR(frame, offset, just)
+		else
+			self:place_H(frame, offset, just)
+		end
 	end
-
-	cooline.border = CreateFrame('Frame', nil, cooline)
-	cooline.border:SetPoint('TOPLEFT', -cooline_theme.borderinset, cooline_theme.borderinset)
-	cooline.border:SetPoint('BOTTOMRIGHT', cooline_theme.borderinset, -cooline_theme.borderinset)
-	cooline.border:SetBackdrop({
-		edgeFile = cooline_theme.border,
-		edgeSize = cooline_theme.bordersize,
-	})
-	cooline.border:SetBackdropBorderColor(unpack(cooline_theme.bordercolor))
-
-	cooline.overlay = CreateFrame('Frame', nil, cooline.border)
-	cooline.overlay:SetFrameLevel(24) -- TODO this gets changed automatically later, to 9, find out why
-
-	cooline.section = (cooline_theme.vertical and cooline_theme.height or cooline_theme.width) / 6
-	cooline.icon_size = (cooline_theme.vertical and cooline_theme.width or cooline_theme.height) + cooline_theme.iconoutset * 2
-	cooline.place = cooline_theme.vertical and (cooline_theme.reverse and place_VR or place_V) or (cooline_theme.reverse and place_HR or place_H)
-
-	cooline.tick0 = cooline.label('0', 0, 'LEFT')
-	cooline.tick1 = cooline.label('1', cooline.section)
-	cooline.tick3 = cooline.label('3', cooline.section * 2)
-	cooline.tick10 = cooline.label('10', cooline.section * 3)
-	cooline.tick30 = cooline.label('30', cooline.section * 4)
-	cooline.tick120 = cooline.label('2m', cooline.section * 5)
-	cooline.tick300 = cooline.label('6m', cooline.section * 6, 'RIGHT')
-	
-	cooline:RegisterEvent('SPELL_UPDATE_COOLDOWN')
-	cooline:RegisterEvent('BAG_UPDATE_COOLDOWN')
-	
-	cooline.detect_cooldowns()
-
-	DEFAULT_CHAT_FRAME:AddMessage('|c00ffff00' .. COOLINE_LOADED_MESSAGE .. '|r');
 end
 
-function cooline.BAG_UPDATE_COOLDOWN()
-	cooline.detect_cooldowns()
-end
-
-function cooline.SPELL_UPDATE_COOLDOWN()
-	cooline.detect_cooldowns()
-end
+TimelineUI:new()
+DEFAULT_CHAT_FRAME:AddMessage('|c00ffff00' .. COOLINE_LOADED_MESSAGE .. '|r');

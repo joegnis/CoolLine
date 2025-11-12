@@ -1,27 +1,27 @@
-cooline_theme = {
+COOLINE_THEME = {
 	vertical = false,
 	reverse = false,
 	width = 360,
 	height = 18,
 	statusbar = [[Interface\TargetingFrame\UI-StatusBar]],
-	bgcolor = { 0, 0, 0, 0.5 },
+	bg_color = { 0, 0, 0, 0.5 },
 	border = [[Interface\DialogFrame\UI-DialogBox-Border]],
-	bordersize = 16,
-	borderinset = 4,
-	bordercolor = { 1, 1, 1, 1 },
-	iconoutset = 2,
+	border_size = 16,
+	border_inset = 4,
+	border_color = { 1, 1, 1, 1 },
+	icon_outset = 2,
 	font = [[Fonts\FRIZQT__.TTF]],
-	fontsize = 10,
-	fontcolor = { 1, 1, 1, 0.8 },
-	spellcolor = { 0.8, 0.4, 0, 1 },
-	nospellcolor = { 0, 0, 0, 1 },
-	inactivealpha = 0.5,
-	activealpha = 1.0,
-	treshold = 3.0,
+	font_size = 10,
+	font_color = { 1, 1, 1, 0.8 },
+	spell_color = { 0.8, 0.4, 0, 1 },
+	no_spell_color = { 0, 0, 0, 1 },
+	inactive_alpha = 0.5,
+	active_alpha = 1.0,
+	threshold = 3.0,
 }
 
-cooline_ignore_list = {
-	'hearthstone'
+COOLINE_IGNORE_LIST = {
+    'hearthstone'
 }
 
 COOLINE_LOADED_MESSAGE = 'Cooline loaded: move the location of the cooline bar by holding <alt> while dragging it with left mouse button.'

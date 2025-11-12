@@ -1,19 +1,3 @@
-local state = {
-	is_dragging = false,
-	x = 0,
-	y = -240,
-	-- to dynamically adjust update frequency based on remaining cooldown
-	-- TODO: separate threshold for each aura
-	update_threshold = 0.0,
-	last_update = GetTime(),
-	to_re_level = false,
-	last_re_level = GetTime(),
-	is_active = false,
-}
-
----@type Frame[]
-local frame_pool = {}
-
 local function get_keys_sorted_by_value(tbl, sortFunction)
 	local keys = {}
 	for key in pairs(tbl) do
@@ -56,6 +40,16 @@ function CooldownAura:new(parent)
 	return inst
 end
 
+---@alias State {
+---  is_dragging: boolean,
+---  x: integer,
+---  y: integer,
+---  update_threshold: number,
+---  last_update: number,
+---  to_re_level: boolean,
+---  last_re_level: number,
+---  is_active: boolean }
+
 ---@class TimelineUI
 ---@field frame Frame
 ---@field background Texture
@@ -64,6 +58,8 @@ end
 ---@field section integer
 ---@field icon_size integer
 ---@field auras table<string, CooldownAura>
+---@field state State
+---@field aura_frame_pool Frame[]
 local TimelineUI = {}
 
 ---@return TimelineUI
@@ -74,9 +70,28 @@ function TimelineUI:new()
 	inst.section = COOLINE_THEME.width / 6
 	inst.icon_size = COOLINE_THEME.height + COOLINE_THEME.icon_outset * 2
 	inst.auras = {}
+	inst.aura_frame_pool = {}
+	inst.state = {
+		is_dragging = false,
+		x = 0,
+		y = -240,
+		-- to dynamically adjust update frequency based on remaining cooldown
+		-- TODO: separate threshold for each aura
+		update_threshold = 0.0,
+		last_update = GetTime(),
+		to_re_level = false,
+		last_re_level = GetTime(),
+		is_active = false,
+	}
 
+	return inst
+end
+
+function TimelineUI:enable()
 	local frame = CreateFrame('Button', nil, UIParent)
-	inst.frame = frame
+	self.frame = frame
+	local state = self.state
+
 	frame:SetClampedToScreen(true)
 	frame:SetMovable(true)
 	if COOLINE_THEME.vertical then
@@ -98,7 +113,7 @@ function TimelineUI:new()
 	else
 		background:SetTexCoord(0, 1, 0, 1)
 	end
-	inst.background = background
+	self.background = background
 
 	-- Border frame
 	local border = CreateFrame('Frame', nil, frame)
@@ -109,20 +124,12 @@ function TimelineUI:new()
 		edgeSize = COOLINE_THEME.border_size,
 	})
 	border:SetBackdropBorderColor(unpack(COOLINE_THEME.border_color))
-	inst.border = border
+	self.border = border
 
 	-- Overlay frame
 	local overlay = CreateFrame('Frame', nil, border)
 	overlay:SetFrameLevel(24) -- TODO this gets changed automatically later, to 9, find out why
-	inst.overlay = overlay
-
-	-- Events
-	frame:SetScript('OnEvent', function()
-		if event == 'VARIABLES_LOADED' or event == 'BAG_UPDATE_COOLDOWN' or event == 'SPELL_UPDATE_COOLDOWN' then
-			inst:detect_cooldowns()
-			inst:on_update(true)
-		end
-	end)
+	self.overlay = overlay
 
 	-- Dragging
 	local function on_drag_stop()
@@ -145,38 +152,37 @@ function TimelineUI:new()
 		if not IsAltKeyDown() and state.is_dragging then
 			on_drag_stop()
 		end
-		inst:on_update(false)
+		self:on_update(false)
 	end)
 
 	-- Text labels for time markers
-	inst:label('0', 0, 'Left')
-	inst:label('1', inst.section)
-	inst:label('3', inst.section * 2)
-	inst:label('10', inst.section * 3)
-	inst:label('30', inst.section * 4)
-	inst:label('2m', inst.section * 5)
-	inst:label('6m', inst.section * 6, 'Right')
+	self:label('0', 0, 'Left')
+	self:label('1', self.section)
+	self:label('3', self.section * 2)
+	self:label('10', self.section * 3)
+	self:label('30', self.section * 4)
+	self:label('2m', self.section * 5)
+	self:label('6m', self.section * 6, 'Right')
 
-	frame:Hide()
+	-- Events
+	frame:RegisterEvent('VARIABLES_LOADED')
+	frame:RegisterEvent('SPELL_UPDATE_COOLDOWN')
+	frame:RegisterEvent('BAG_UPDATE_COOLDOWN')
+	frame:SetScript('OnEvent', function()
+		if event == 'VARIABLES_LOADED' or event == 'BAG_UPDATE_COOLDOWN' or event == 'SPELL_UPDATE_COOLDOWN' then
+			self:detect_cooldowns()
+			self:on_update(true)
+		end
+	end)
 
-	return inst
-end
-
-function TimelineUI:enable()
-	self.frame:RegisterEvent('VARIABLES_LOADED')
-	self.frame:RegisterEvent('SPELL_UPDATE_COOLDOWN')
-	self.frame:RegisterEvent('BAG_UPDATE_COOLDOWN')
 	self:detect_cooldowns()
-	self.frame:Show()
-end
-
-function TimelineUI:disable()
-	self.frame:UnregisterAllEvents()
-	self.frame:Hide()
+	frame:Show()
 end
 
 ---@param is_force boolean
 function TimelineUI:on_update(is_force)
+	local state = self.state
+
 	if GetTime() - state.last_update < state.update_threshold and not is_force then return end
 	state.last_update = GetTime()
 
@@ -249,7 +255,7 @@ function TimelineUI:start_cooldown(name, texture, start_time, duration, is_spell
 		end
 	end
 
-	auras[name] = auras[name] or tremove(frame_pool) or CooldownAura:new(self.border)
+	auras[name] = auras[name] or tremove(self.aura_frame_pool) or CooldownAura:new(self.border)
 	local aura = auras[name]
 	aura.frame:SetWidth(self.icon_size)
 	aura.frame:SetHeight(self.icon_size)
@@ -289,12 +295,13 @@ function TimelineUI:clear_cooldown(name)
 	local auras = self.auras
 	if auras[name] then
 		auras[name].frame:Hide()
-		tinsert(frame_pool, auras[name])
+		tinsert(self.aura_frame_pool, auras[name])
 		auras[name] = nil
 	end
 end
 
 function TimelineUI:detect_cooldowns()
+	-- Finds cooldowns on items in bags
 	for bag_id = 0, 4 do
 		local bag = GetBagName(bag_id)
 		if bag then
@@ -318,6 +325,7 @@ function TimelineUI:detect_cooldowns()
 		end
 	end
 
+	-- Finds cooldowns on equipped items
 	for slot = 0, 19 do
 		local start_time, duration, enabled = GetInventoryItemCooldown('player', slot)
 		if enabled == 1 then
@@ -336,6 +344,7 @@ function TimelineUI:detect_cooldowns()
 		end
 	end
 
+	-- Finds cooldowns on spells
 	local _, _, offset, spell_count = GetSpellTabInfo(GetNumSpellTabs())
 	local total_spells = offset + spell_count
 	for id = 1, total_spells do
@@ -426,11 +435,5 @@ end
 function CoolLineAddon:OnEnable()
 	if main_ui then
 		main_ui:enable()
-	end
-end
-
-function CoolLineAddon:OnDisable()
-	if main_ui then
-		main_ui:disable()
 	end
 end

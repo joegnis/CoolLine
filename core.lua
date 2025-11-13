@@ -21,11 +21,12 @@ end
 ---@field frame Frame
 ---@field icon Texture
 ---@field end_time number
+---@field time_last_update number
 local CooldownAura = {}
 
----@param name string
 ---@param parent Frame
-function CooldownAura:new(name, parent)
+---@param name string
+function CooldownAura:New(parent, name)
 	local inst = setmetatable({}, { __index = CooldownAura })
 
 	local frame = CreateFrame('Frame', nil, parent)
@@ -39,8 +40,25 @@ function CooldownAura:new(name, parent)
 	inst.icon = icon
 	inst.end_time = 0
 	inst.name = name
+	inst.time_last_update = 0
 
 	return inst
+end
+
+---@param size integer
+---@param texture string
+---@param end_time number
+---@param is_spell boolean
+function CooldownAura:Reset(size, texture, end_time, is_spell)
+	self:SetSize(size)
+	self.icon:SetTexture(texture)
+	self.end_time = end_time
+	if is_spell then
+		self.frame:SetBackdropColor(unpack(COOLINE_THEME.spell_color))
+	else
+		self.frame:SetBackdropColor(unpack(COOLINE_THEME.no_spell_color))
+	end
+	self:SetAlpha((end_time - GetTime() > 360) and 0.6 or 1)
 end
 
 ---@param alpha number
@@ -48,19 +66,10 @@ function CooldownAura:SetAlpha(alpha)
 	self.frame:SetAlpha(alpha)
 end
 
----@param width number
-function CooldownAura:SetWidth(width)
-	self.frame:SetWidth(width)
-end
-
----@param height number
-function CooldownAura:SetHeight(height)
-	self.frame:SetHeight(height)
-end
-
----@param texture string|Texture
-function CooldownAura:SetIconTexture(texture)
-	self.icon:SetTexture(texture)
+---@param size integer
+function CooldownAura:SetSize(size)
+	self.frame:SetWidth(size)
+	self.frame:SetHeight(size)
 end
 
 ---@param level integer
@@ -68,6 +77,11 @@ function CooldownAura:SetFrameLevel(level)
 	self.frame:SetFrameLevel(level)
 end
 
+function CooldownAura:Show()
+	self.frame:Show()
+end
+
+---@return number
 function CooldownAura:TimeLeft()
 	return self.end_time - GetTime()
 end
@@ -76,29 +90,28 @@ end
 ---  is_dragging: boolean,
 ---  x: integer,
 ---  y: integer,
----  update_threshold: number,
----  last_update: number,
----  to_re_level: boolean,
----  last_re_level: number,
+---  to_shuffle_level: boolean,
+---  time_last_shuffle_level: number,
 ---  is_active: boolean }
 
+-- 5 segments: 0-1s, 1-3s, 3-10s, 10-30s, 30-120s, 120-360s
 ---@class TimelineUI
 ---@field frame Frame
 ---@field background Texture
 ---@field border Frame
 ---@field overlay Frame
----@field section integer
+---@field len_segment integer
 ---@field icon_size integer
 ---@field auras table<string, CooldownAura>
 ---@field state State
 ---@field aura_frame_pool Frame[]
 local TimelineUI = {}
 
-function TimelineUI:new()
+function TimelineUI:New()
 	local inst = {}
 	setmetatable(inst, { __index = TimelineUI })
 
-	inst.section = COOLINE_THEME.width / 6
+	inst.len_segment = COOLINE_THEME.width / 6
 	inst.icon_size = COOLINE_THEME.height + COOLINE_THEME.icon_outset * 2
 	inst.auras = {}
 	inst.aura_frame_pool = {}
@@ -106,12 +119,8 @@ function TimelineUI:new()
 		is_dragging = false,
 		x = 0,
 		y = -240,
-		-- to dynamically adjust update frequency based on remaining cooldown
-		-- TODO: separate threshold for each aura
-		update_threshold = 0.0,
-		last_update = GetTime(),
-		to_re_level = false,
-		last_re_level = GetTime(),
+		to_shuffle_level = false,
+		time_last_shuffle_level = 0,
 		is_active = false,
 	}
 
@@ -188,12 +197,12 @@ function TimelineUI:enable()
 
 	-- Text labels for time markers
 	self:Label('0', 0, 'Left')
-	self:Label('1', self.section)
-	self:Label('3', self.section * 2)
-	self:Label('10', self.section * 3)
-	self:Label('30', self.section * 4)
-	self:Label('2m', self.section * 5)
-	self:Label('6m', self.section * 6, 'Right')
+	self:Label('1', self.len_segment)
+	self:Label('3', self.len_segment * 2)
+	self:Label('10', self.len_segment * 3)
+	self:Label('30', self.len_segment * 4)
+	self:Label('2m', self.len_segment * 5)
+	self:Label('6m', self.len_segment * 6, 'Right')
 
 	-- Events
 	frame:RegisterEvent('VARIABLES_LOADED')
@@ -201,70 +210,89 @@ function TimelineUI:enable()
 	frame:RegisterEvent('BAG_UPDATE_COOLDOWN')
 	frame:SetScript('OnEvent', function()
 		if event == 'VARIABLES_LOADED' or event == 'BAG_UPDATE_COOLDOWN' or event == 'SPELL_UPDATE_COOLDOWN' then
-			self:DetectCooldowns()
+			self:FindAllCooldown()
 			self:Update(true)
 		end
 	end)
 
-	self:DetectCooldowns()
+	self:FindAllCooldown()
 	frame:Show()
 end
 
 ---@param is_force boolean
 function TimelineUI:Update(is_force)
 	local state = self.state
+	local now = GetTime()
 
-	if GetTime() - state.last_update < state.update_threshold and not is_force then return end
-	state.last_update = GetTime()
-
-	state.to_re_level = false
-	if GetTime() - state.last_re_level > 0.4 then
-		state.to_re_level, state.last_re_level = true, GetTime()
+	local to_shuffle_level = false
+	-- Shuffles auras' frame levels every 0.4 seconds
+	-- only for far-away cooldowns
+	if now - state.time_last_shuffle_level > 0.4 then
+		to_shuffle_level = true
+		state.time_last_shuffle_level = now
 	end
-	local to_re_level = state.to_re_level
+	state.to_shuffle_level = to_shuffle_level
 
-	state.is_active, state.update_threshold = false, 1.5
+	-- Aura moves faster as it approaches expiration
+	-- because each segment has the same length,
+	-- so the segment closer to expiration has a shorter time span.
+    --
+	-- Reduces calls to SetPoint by reducing update frequency for far-away cooldowns.
+	state.is_active = false
 	for name, aura in pairs(self.auras) do
 		local time_left = aura:TimeLeft()
 		state.is_active = state.is_active or time_left < 360
 
 		if time_left < -1 then
-			state.update_threshold = min(state.update_threshold, 0.2)
+			-- Keeps the expired and fading aura for 1 second
 			state.is_active = true
-			self:ClearCooldown(name)
+			self:ClearAura(name)
 		elseif time_left < 0 then
-			self:UpdateCooldown(aura, 0, to_re_level)
-			aura:SetAlpha(1 + time_left) -- fades
+			self:UpdateAura(aura, 0, to_shuffle_level)
+			-- Adds fading effect after expired
+			aura:SetAlpha(max(1 + time_left, 0))
 		elseif time_left < 0.3 then
-			state.update_threshold = min(state.update_threshold, 0)
-			local size = self.icon_size * (0.5 - time_left) *
-				5 -- icon_size + icon_size * (0.3 - time_left) / 0.2
-			aura:SetWidth(size)
-			aura:SetHeight(size)
-			self:UpdateCooldown(aura, self.section * time_left, to_re_level)
+			-- icon_size + icon_size * (0.3 - time_left) / 0.2
+			local size = floor(self.icon_size * (0.5 - time_left) * 5)
+			aura:SetSize(size)
+			self:UpdateAura(aura, self.len_segment * time_left, to_shuffle_level)
 		elseif time_left < 1 then
-			state.update_threshold = min(state.update_threshold, 0)
-			self:UpdateCooldown(aura, self.section * time_left, to_re_level)
+			self:UpdateAura(aura, self.len_segment * time_left, to_shuffle_level)
 		elseif time_left < 3 then
-			state.update_threshold = min(state.update_threshold, 0.02)
-			self:UpdateCooldown(aura, self.section * (time_left + 1) * 0.5, to_re_level)
+			if now - aura.time_last_update > 0.02 or is_force then
+				self:UpdateAura(aura, self.len_segment * (time_left + 1) * 0.5, to_shuffle_level)
+				aura.time_last_update = now
+			end
 		elseif time_left < 10 then
-			state.update_threshold = min(state.update_threshold, time_left > 4 and 0.05 or 0.02)
-			self:UpdateCooldown(aura, self.section * (time_left + 11) * 0.14286,
-				to_re_level) -- 2 + (time_left - 3) / 7
+			local threshold = time_left > 4 and 0.05 or 0.02
+			if now - aura.time_last_update > threshold or is_force then
+				-- 2 + (time_left - 3) / 7
+				self:UpdateAura(aura, self.len_segment * (time_left + 11) * 0.14286, to_shuffle_level)
+				aura.time_last_update = now
+			end
 		elseif time_left < 30 then
-			state.update_threshold = min(state.update_threshold, 0.06)
-			self:UpdateCooldown(aura, self.section * (time_left + 50) * 0.05, to_re_level) -- 3 + (time_left - 10) / 20
+			if now - aura.time_last_update > 0.06 or is_force then
+				-- 3 + (time_left - 10) / 20
+				self:UpdateAura(aura, self.len_segment * (time_left + 50) * 0.05, to_shuffle_level)
+				aura.time_last_update = now
+			end
 		elseif time_left < 120 then
-			state.update_threshold = min(state.update_threshold, 0.18)
-			self:UpdateCooldown(aura, self.section * (time_left + 330) * 0.011111, to_re_level) -- 4 + (time_left - 30) / 90
+			if now - aura.time_last_update > 0.18 or is_force then
+				-- 4 + (time_left - 30) / 90
+				self:UpdateAura(aura, self.len_segment * (time_left + 330) * 0.011111, to_shuffle_level)
+				aura.time_last_update = now
+			end
 		elseif time_left < 360 then
-			state.update_threshold = min(state.update_threshold, 1.2)
-			self:UpdateCooldown(aura, self.section * (time_left + 1080) * 0.0041667, to_re_level) -- 5 + (time_left - 120) / 240
-			aura.frame:SetAlpha(COOLINE_THEME.active_alpha)
+			if now - aura.time_last_update > 1.2 or is_force then
+				-- 5 + (time_left - 120) / 240
+				self:UpdateAura(aura, self.len_segment * (time_left + 1080) * 0.0041667, to_shuffle_level)
+				aura:SetAlpha(COOLINE_THEME.active_alpha)
+				aura.time_last_update = now
+			end
 		else
-			self:UpdateCooldown(aura, 6 * self.section, to_re_level)
+			self:UpdateAura(aura, 6 * self.len_segment, to_shuffle_level)
 		end
+
 	end
 	self.frame:SetAlpha(state.is_active and COOLINE_THEME.active_alpha or COOLINE_THEME.inactive_alpha)
 end
@@ -274,7 +302,8 @@ end
 ---@param start_time number
 ---@param duration number
 ---@param is_spell boolean
-function TimelineUI:StartCooldown(name, texture, start_time, duration, is_spell)
+function TimelineUI:NewAura(name, texture, start_time, duration, is_spell)
+	-- Filters with the blacklist
 	for _, ignored_name in COOLINE_IGNORE_LIST do
 		if strupper(name) == strupper(ignored_name) then
 			return
@@ -283,6 +312,8 @@ function TimelineUI:StartCooldown(name, texture, start_time, duration, is_spell)
 
 	local end_time = start_time + duration
 
+    -- Filters out duplicates with the same end_time
+	-- assuming human can not press two buttons at exactly the same time?
 	local auras = self.auras
 	for _, aura in pairs(auras) do
 		if aura.end_time == end_time then
@@ -290,27 +321,18 @@ function TimelineUI:StartCooldown(name, texture, start_time, duration, is_spell)
 		end
 	end
 
-	auras[name] = auras[name] or tremove(self.aura_frame_pool) or CooldownAura:new(name, self.border)
+	auras[name] = auras[name] or tremove(self.aura_frame_pool) or CooldownAura:New(self.border, name)
 	local aura = auras[name]
-	aura:SetWidth(self.icon_size)
-	aura:SetHeight(self.icon_size)
-	aura:SetIconTexture(texture)
-	if is_spell then
-		aura.frame:SetBackdropColor(unpack(COOLINE_THEME.spell_color))
-	else
-		aura.frame:SetBackdropColor(unpack(COOLINE_THEME.no_spell_color))
-	end
-	aura.frame:SetAlpha((end_time - GetTime() > 360) and 0.6 or 1)
-	aura.end_time = end_time
-	aura.frame:Show()
+	aura:Reset(self.icon_size, texture, end_time, is_spell)
+	aura:Show()
 end
 
 ---@param aura CooldownAura
 ---@param position number
----@param to_re_level boolean
-function TimelineUI:UpdateCooldown(aura, position, to_re_level)
+---@param to_shuffle_level boolean
+function TimelineUI:UpdateAura(aura, position, to_shuffle_level)
 	if aura.end_time - GetTime() < COOLINE_THEME.threshold then
-        -- Expiring-soon cooldowns: sort by end_time in descending order
+		-- Expiring-soon cooldowns: sort by end_time in descending order
 		-- so the most urgent ones appear on top
 		local sorted = GetKeysSortedByValue(self.auras, function(a, b) return a.end_time > b.end_time end)
 		for i, k in ipairs(sorted) do
@@ -319,9 +341,9 @@ function TimelineUI:UpdateCooldown(aura, position, to_re_level)
 			end
 		end
 	else
-        -- Far-away cooldowns: they may stack with each other,
+		-- Far-away cooldowns: they may stack with each other,
 		-- so randomize frame level to create visual variety
-		if to_re_level then
+		if to_shuffle_level then
 			aura:SetFrameLevel(random(1, 5) + 2)
 		end
 	end
@@ -329,7 +351,8 @@ function TimelineUI:UpdateCooldown(aura, position, to_re_level)
 	self:PlaceOnBar(aura.frame, position)
 end
 
-function TimelineUI:ClearCooldown(name)
+function TimelineUI:ClearAura(name)
+	-- Does not delete the frame, just hides and puts it into the pool
 	local auras = self.auras
 	if auras[name] then
 		auras[name].frame:Hide()
@@ -338,7 +361,7 @@ function TimelineUI:ClearCooldown(name)
 	end
 end
 
-function TimelineUI:DetectCooldowns()
+function TimelineUI:FindAllCooldown()
 	-- Finds cooldowns on items in bags
 	for bag_id = 0, 4 do
 		local bag = GetBagName(bag_id)
@@ -348,7 +371,7 @@ function TimelineUI:DetectCooldowns()
 				if enabled == 1 then
 					local name = HyperlinkName(GetContainerItemLink(bag_id, slot))
 					if duration > 3 and duration < 3601 then
-						self:StartCooldown(
+						self:NewAura(
 							name,
 							GetContainerItemInfo(bag_id, slot),
 							start_time,
@@ -356,7 +379,7 @@ function TimelineUI:DetectCooldowns()
 							false
 						)
 					elseif duration == 0 then
-						self:ClearCooldown(name)
+						self:ClearAura(name)
 					end
 				end
 			end
@@ -370,7 +393,7 @@ function TimelineUI:DetectCooldowns()
 		if item_texture and enabled == 1 then
 			local name = HyperlinkName(GetInventoryItemLink('player', slot))
 			if duration > 3 and duration < 3601 then
-				self:StartCooldown(
+				self:NewAura(
 					name,
 					item_texture,
 					start_time,
@@ -378,7 +401,7 @@ function TimelineUI:DetectCooldowns()
 					false
 				)
 			elseif duration == 0 then
-				self:ClearCooldown(name)
+				self:ClearAura(name)
 			end
 		end
 	end
@@ -391,7 +414,7 @@ function TimelineUI:DetectCooldowns()
 		local spell_texture = GetSpellTexture(id, BOOKTYPE_SPELL)
 		local name = GetSpellName(id, BOOKTYPE_SPELL)
 		if name and spell_texture and enabled == 1 and duration > 2.5 then
-			self:StartCooldown(
+			self:NewAura(
 				name,
 				spell_texture,
 				start_time,
@@ -399,7 +422,7 @@ function TimelineUI:DetectCooldowns()
 				true
 			)
 		elseif duration == 0 then
-			self:ClearCooldown(name)
+			self:ClearAura(name)
 		end
 	end
 end
@@ -469,7 +492,7 @@ CoolLineAddon = LibStub("AceAddon-3.0"):NewAddon("CoolLine")
 local main_ui = nil
 
 function CoolLineAddon:OnInitialize()
-	main_ui = TimelineUI:new()
+	main_ui = TimelineUI:New()
 	DEFAULT_CHAT_FRAME:AddMessage('|c00ffff00' .. COOLINE_LOADED_MESSAGE .. '|r');
 end
 

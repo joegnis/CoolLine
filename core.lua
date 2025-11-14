@@ -86,7 +86,86 @@ function CooldownAura:TimeLeft()
 	return self.end_time - GetTime()
 end
 
+---@class TimeLabel
+---@field label string
+---@field pos_on_bar integer
+---@field anchor_point FramePoint
+---@field _font_string FontString
+local TimeLabel = {}
+
+---@param parent Frame
+---@param label string
+---@param pos_on_bar integer
+---@return table|TimeLabel
+function TimeLabel:New(parent, label, pos_on_bar)
+	local fs = parent:CreateFontString(nil, 'OVERLAY')
+	fs:SetFont(COOLINE_THEME.font, COOLINE_THEME.font_size)
+	fs:SetTextColor(unpack(COOLINE_THEME.font_color))
+	fs:SetText(label)
+	fs:SetWidth(COOLINE_THEME.font_size * 3)
+	fs:SetHeight(COOLINE_THEME.font_size + 2)
+	fs:SetShadowColor(unpack(COOLINE_THEME.bg_color))
+	fs:SetShadowOffset(1, -1)
+	fs:SetJustifyH('Center')
+
+	return setmetatable({
+		label = label,
+		pos_on_bar = pos_on_bar,
+		anchor_point = "Center",
+		_font_string = fs
+	}, { __index = self })
+end
+
+---@return Region
+function TimeLabel:GetRegion()
+	return self._font_string
+end
+
+---@param is_vertical boolean
+---@param is_reversed boolean
+function TimeLabel:SetFirstLabelAlignment(is_vertical, is_reversed)
+	if is_vertical then
+		self._font_string:SetJustifyH("Center")
+		if is_reversed then
+			self.anchor_point = "Top"
+		else
+			self.anchor_point = "Bottom"
+		end
+	else
+		if is_reversed then
+			self.anchor_point = "Right"
+			self._font_string:SetJustifyH("Right")
+		else
+			self.anchor_point = "Left"
+			self._font_string:SetJustifyH("Left")
+		end
+	end
+end
+
+---@param is_vertical boolean
+---@param is_reversed boolean
+function TimeLabel:SetLastLabelAlignment(is_vertical, is_reversed)
+	if is_vertical then
+		self._font_string:SetJustifyH("Center")
+		if is_reversed then
+			self.anchor_point = "Bottom"
+		else
+			self.anchor_point = "Top"
+		end
+	else
+		if is_reversed then
+			self.anchor_point = "Left"
+			self._font_string:SetJustifyH("Left")
+		else
+			self.anchor_point = "Right"
+			self._font_string:SetJustifyH("Right")
+		end
+	end
+end
+
 ---@alias State {
+---  is_vertical: boolean,
+---  is_reversed: boolean,
 ---  is_dragging: boolean,
 ---  x: integer,
 ---  y: integer,
@@ -104,7 +183,10 @@ end
 ---@field icon_size integer
 ---@field auras table<string, CooldownAura>
 ---@field state State
+---@field time_labels TimeLabel[]
 ---@field aura_frame_pool Frame[]
+---@field _first_label TimeLabel
+---@field _last_label TimeLabel
 local TimelineUI = {}
 
 function TimelineUI:New()
@@ -116,6 +198,8 @@ function TimelineUI:New()
 	inst.auras = {}
 	inst.aura_frame_pool = {}
 	inst.state = {
+		is_vertical = false,
+		is_reversed = false,
 		is_dragging = false,
 		x = 0,
 		y = -240,
@@ -127,20 +211,16 @@ function TimelineUI:New()
 	return inst
 end
 
-function TimelineUI:enable()
+function TimelineUI:Enable()
 	local frame = CreateFrame('Button', nil, UIParent)
 	self.frame = frame
 	local state = self.state
 
+	self.state.is_vertical = COOLINE_THEME.vertical
+	self.state.is_reversed = COOLINE_THEME.reverse
+
 	frame:SetClampedToScreen(true)
 	frame:SetMovable(true)
-	if COOLINE_THEME.vertical then
-		frame:SetWidth(COOLINE_THEME.height)
-		frame:SetHeight(COOLINE_THEME.width)
-	else
-		frame:SetWidth(COOLINE_THEME.width)
-		frame:SetHeight(COOLINE_THEME.height)
-	end
 	frame:SetPoint('Center', state.x, state.y)
 
 	-- Background texture
@@ -148,11 +228,6 @@ function TimelineUI:enable()
 	background:SetTexture(COOLINE_THEME.statusbar)
 	background:SetVertexColor(unpack(COOLINE_THEME.bg_color))
 	background:SetAllPoints(frame)
-	if COOLINE_THEME.vertical then
-		background:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1)
-	else
-		background:SetTexCoord(0, 1, 0, 1)
-	end
 	self.background = background
 
 	-- Border frame
@@ -195,14 +270,23 @@ function TimelineUI:enable()
 		self:Update(false)
 	end)
 
-	-- Text labels for time markers
-	self:Label('0', 0, 'Left')
-	self:Label('1', self.len_segment)
-	self:Label('3', self.len_segment * 2)
-	self:Label('10', self.len_segment * 3)
-	self:Label('30', self.len_segment * 4)
-	self:Label('2m', self.len_segment * 5)
-	self:Label('6m', self.len_segment * 6, 'Right')
+	-- 7 Text labels for time markers
+	local first_label = TimeLabel:New(overlay, '0', 0)
+	local last_label = TimeLabel:New(overlay, '6m', self.len_segment * 6)
+	first_label:SetFirstLabelAlignment(self.state.is_vertical, self.state.is_reversed)
+	last_label:SetLastLabelAlignment(self.state.is_vertical, self.state.is_reversed)
+	self._first_label = first_label
+	self._last_label = last_label
+	self.time_labels = {
+		first_label,
+		TimeLabel:New(overlay, '1', self.len_segment),
+		TimeLabel:New(overlay, '3', self.len_segment * 2),
+		TimeLabel:New(overlay, '10', self.len_segment * 3),
+		TimeLabel:New(overlay, '30', self.len_segment * 4),
+		TimeLabel:New(overlay, '2m', self.len_segment * 5),
+		last_label
+	}
+	self:UpdateTimeLabelPositions()
 
 	-- Events
 	frame:RegisterEvent('VARIABLES_LOADED')
@@ -215,8 +299,42 @@ function TimelineUI:enable()
 		end
 	end)
 
+	self:SetAlignment(self.state.is_vertical, self.state.is_reversed, true)
 	self:FindAllCooldown()
 	frame:Show()
+end
+
+function TimelineUI:UpdateTimeLabelPositions()
+	for _, label in ipairs(self.time_labels) do
+		local region = label:GetRegion()
+		region:ClearAllPoints()
+		self:PlaceOnBar(region, label.pos_on_bar, label.anchor_point)
+	end
+end
+
+---@param is_vertical boolean
+---@param is_reversed boolean
+---@param forced boolean|nil
+function TimelineUI:SetAlignment(is_vertical, is_reversed, forced)
+	local changed = self.state.is_vertical ~= is_vertical or self.state.is_reversed ~= is_reversed
+	if changed or forced then
+		self.state.is_vertical = is_vertical
+		self.state.is_reversed = is_reversed
+
+		self._first_label:SetFirstLabelAlignment(is_vertical, is_reversed)
+		self._last_label:SetLastLabelAlignment(is_vertical, is_reversed)
+		self:UpdateTimeLabelPositions()
+
+		if is_vertical then
+			self.frame:SetWidth(COOLINE_THEME.height)
+			self.frame:SetHeight(COOLINE_THEME.width)
+			self.background:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1)
+		else
+			self.frame:SetWidth(COOLINE_THEME.width)
+			self.frame:SetHeight(COOLINE_THEME.height)
+			self.background:SetTexCoord(0, 1, 0, 1)
+		end
+	end
 end
 
 ---@param is_force boolean
@@ -236,7 +354,7 @@ function TimelineUI:Update(is_force)
 	-- Aura moves faster as it approaches expiration
 	-- because each segment has the same length,
 	-- so the segment closer to expiration has a shorter time span.
-    --
+	--
 	-- Reduces calls to SetPoint by reducing update frequency for far-away cooldowns.
 	state.is_active = false
 	for name, aura in pairs(self.auras) do
@@ -292,7 +410,6 @@ function TimelineUI:Update(is_force)
 		else
 			self:UpdateAura(aura, 6 * self.len_segment, to_shuffle_level)
 		end
-
 	end
 	self.frame:SetAlpha(state.is_active and COOLINE_THEME.active_alpha or COOLINE_THEME.inactive_alpha)
 end
@@ -312,7 +429,7 @@ function TimelineUI:NewAura(name, texture, start_time, duration, is_spell)
 
 	local end_time = start_time + duration
 
-    -- Filters out duplicates with the same end_time
+	-- Filters out duplicates with the same end_time
 	-- assuming human can not press two buttons at exactly the same time?
 	local auras = self.auras
 	for _, aura in pairs(auras) do
@@ -427,77 +544,103 @@ function TimelineUI:FindAllCooldown()
 	end
 end
 
----@param text string
----@param offset integer
----@param point FramePoint|nil
----@return FontString
-function TimelineUI:Label(text, offset, point)
-	-- Create a font string as a child of overlay
-	local fs = self.overlay:CreateFontString(nil, 'OVERLAY')
-	fs:SetFont(COOLINE_THEME.font, COOLINE_THEME.font_size)
-	fs:SetTextColor(unpack(COOLINE_THEME.font_color))
-	fs:SetText(text)
-	fs:SetWidth(COOLINE_THEME.font_size * 3)
-	fs:SetHeight(COOLINE_THEME.font_size + 2)
-	fs:SetShadowColor(unpack(COOLINE_THEME.bg_color))
-	fs:SetShadowOffset(1, -1)
-	if point then
-		fs:ClearAllPoints()
-		if COOLINE_THEME.vertical then
-			fs:SetJustifyH('Center')
-			if COOLINE_THEME.reverse then
-				point = (point == 'Left' and 'Top') or 'Bottom'
-			else
-				point = (point == 'Left' and 'Bottom') or 'Top'
-			end
-		else
-			if COOLINE_THEME.reverse then
-				point = (point == 'Left' and 'Right') or 'Left'
-				offset = offset + ((point == 'Left' and 1) or -1)
-			else
-				offset = offset + ((point == 'Left' and 1) or -1)
-			end
-			fs:SetJustifyH(point)
-		end
-	else
-		fs:SetJustifyH('Center')
-	end
-	self:PlaceOnBar(fs, offset, point)
-	return fs
-end
-
 ---Places a label or aura frame on the timeline bar
----@param frame Frame|FontString
+---@param region Region
 ---@param offset number
----@param point FramePoint|nil
-function TimelineUI:PlaceOnBar(frame, offset, point)
-	if COOLINE_THEME.vertical then
-		if COOLINE_THEME.reverse then
-			frame:SetPoint(point or 'Center', self.frame, 'Top', 0, -offset)
+---@param anchor_point FramePoint|nil
+function TimelineUI:PlaceOnBar(region, offset, anchor_point)
+	if not anchor_point then
+		anchor_point = 'Center'
+	end
+
+	if self.state.is_vertical then
+		if self.state.is_reversed then
+			region:SetPoint(anchor_point, self.frame, 'Top', 0, -offset)
 		else
-			frame:SetPoint(point or 'Center', self.frame, 'Bottom', 0, offset)
+			region:SetPoint(anchor_point, self.frame, 'Bottom', 0, offset)
 		end
 	else
-		if COOLINE_THEME.reverse then
-			frame:SetPoint(point or 'Center', self.frame, 'Right', -offset, 0)
+		if self.state.is_reversed then
+			region:SetPoint(anchor_point, self.frame, 'Right', -offset, 0)
 		else
-			frame:SetPoint(point or 'Center', self.frame, 'Left', offset, 0)
+			region:SetPoint(anchor_point, self.frame, 'Left', offset, 0)
 		end
 	end
 end
 
-CoolLineAddon = LibStub("AceAddon-3.0"):NewAddon("CoolLine")
+local AceAddon = LibStub("AceAddon-3.0")
+local AceConfig = LibStub("AceConfig-3.0")
+local AceConfigDialog = LibStub("AceConfigDialog-3.0")
+local AceConsole = LibStub("AceConsole-3.0")
 
+CoolLineAddon = AceAddon:NewAddon("CoolLine")
 ---@type TimelineUI?
 local main_ui = nil
 
+
+-- Configuration
+local function SetVertical(info, value)
+	if main_ui then
+		main_ui:SetAlignment(value, main_ui.state.is_reversed)
+	end
+end
+
+---@return boolean
+local function GetVertical(info)
+	if main_ui then
+		return main_ui.state.is_vertical
+	end
+	return false
+end
+
+local function SetReversed(info, value)
+    if main_ui then
+        main_ui:SetAlignment(main_ui.state.is_vertical, value)
+    end
+end
+
+---@return boolean
+local function GetReversed(info)
+	if main_ui then
+		return main_ui.state.is_reversed
+	end
+	return false
+end
+
+local options = {
+	name = "CoolLine",
+	type = "group",
+	args = {
+		vertical = {
+			name = "Vertical?",
+			desc = "Makes the timeline vertical or not",
+			type = "toggle",
+			get = GetVertical,
+			set = SetVertical,
+		},
+		reversed = {
+			name = "Reversed?",
+			desc = "Makes the timeline reversed or not",
+			type = "toggle",
+			get = GetReversed,
+			set = SetReversed,
+		}
+	}
+}
+
 function CoolLineAddon:OnInitialize()
 	main_ui = TimelineUI:New()
-	DEFAULT_CHAT_FRAME:AddMessage('|c00ffff00' .. COOLINE_LOADED_MESSAGE .. '|r');
+	AceConfig.RegisterOptionsTable(self, "CoolLine", options)
+
+	-- Register the slash command to open the config GUI
+	AceConsole:RegisterChatCommand("coolline", function()
+		AceConfigDialog:Open("CoolLine")
+	end)
 end
 
 function CoolLineAddon:OnEnable()
 	if main_ui then
-		main_ui:enable()
+		main_ui:Enable()
 	end
+	DEFAULT_CHAT_FRAME:AddMessage(COOLINE_LOADED_MESSAGE);
 end

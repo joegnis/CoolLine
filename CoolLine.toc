@@ -7,8 +7,12 @@
 ## SavedVariablesPerCharacter: cooline_settings
 
 Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml
 Libs\AceCore-3.0\AceCore-3.0.xml
 Libs\AceAddon-3.0\AceAddon-3.0.xml
+Libs\AceGUI-3.0\AceGUI-3.0.xml
+Libs\AceConsole-3.0\AceConsole-3.0.xml
+Libs\AceConfig-3.0\AceConfig-3.0.xml
 
 settings.lua
 core.lua

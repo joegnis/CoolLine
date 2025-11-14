@@ -1,3 +1,12 @@
+local AceAddon = LibStub("AceAddon-3.0")
+local AceConfig = LibStub("AceConfig-3.0")
+local AceConfigDialog = LibStub("AceConfigDialog-3.0")
+local AceConsole = LibStub("AceConsole-3.0")
+
+CoolLineAddon = AceAddon:NewAddon("CoolLine")
+---@type TimelineUI?
+local main_ui = nil
+
 local function GetKeysSortedByValue(tbl, sortFunction)
 	local keys = {}
 	for key in pairs(tbl) do
@@ -574,16 +583,6 @@ function TimelineUI:PlaceOnBar(region, offset, anchor_point)
 	end
 end
 
-local AceAddon = LibStub("AceAddon-3.0")
-local AceConfig = LibStub("AceConfig-3.0")
-local AceConfigDialog = LibStub("AceConfigDialog-3.0")
-local AceConsole = LibStub("AceConsole-3.0")
-
-CoolLineAddon = AceAddon:NewAddon("CoolLine")
----@type TimelineUI?
-local main_ui = nil
-
-
 -- Configuration
 local function SetVertical(info, value)
 	if main_ui then
@@ -600,9 +599,9 @@ local function GetVertical(info)
 end
 
 local function SetReversed(info, value)
-    if main_ui then
-        main_ui:SetAlignment(main_ui.state.is_vertical, value)
-    end
+	if main_ui then
+		main_ui:SetAlignment(main_ui.state.is_vertical, value)
+	end
 end
 
 ---@return boolean

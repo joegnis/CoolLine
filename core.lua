@@ -334,11 +334,13 @@ function TimelineUI:SetAlignment(is_vertical, is_reversed, forced)
 			self.frame:SetHeight(COOLINE_THEME.height)
 			self.background:SetTexCoord(0, 1, 0, 1)
 		end
+
+		self:Update(true)
 	end
 end
 
----@param is_force boolean
-function TimelineUI:Update(is_force)
+---@param forced boolean
+function TimelineUI:Update(forced)
 	local state = self.state
 	local now = GetTime()
 
@@ -377,31 +379,31 @@ function TimelineUI:Update(is_force)
 		elseif time_left < 1 then
 			self:UpdateAura(aura, self.len_segment * time_left, to_shuffle_level)
 		elseif time_left < 3 then
-			if now - aura.time_last_update > 0.02 or is_force then
+			if now - aura.time_last_update > 0.02 or forced then
 				self:UpdateAura(aura, self.len_segment * (time_left + 1) * 0.5, to_shuffle_level)
 				aura.time_last_update = now
 			end
 		elseif time_left < 10 then
 			local threshold = time_left > 4 and 0.05 or 0.02
-			if now - aura.time_last_update > threshold or is_force then
+			if now - aura.time_last_update > threshold or forced then
 				-- 2 + (time_left - 3) / 7
 				self:UpdateAura(aura, self.len_segment * (time_left + 11) * 0.14286, to_shuffle_level)
 				aura.time_last_update = now
 			end
 		elseif time_left < 30 then
-			if now - aura.time_last_update > 0.06 or is_force then
+			if now - aura.time_last_update > 0.06 or forced then
 				-- 3 + (time_left - 10) / 20
 				self:UpdateAura(aura, self.len_segment * (time_left + 50) * 0.05, to_shuffle_level)
 				aura.time_last_update = now
 			end
 		elseif time_left < 120 then
-			if now - aura.time_last_update > 0.18 or is_force then
+			if now - aura.time_last_update > 0.18 or forced then
 				-- 4 + (time_left - 30) / 90
 				self:UpdateAura(aura, self.len_segment * (time_left + 330) * 0.011111, to_shuffle_level)
 				aura.time_last_update = now
 			end
 		elseif time_left < 360 then
-			if now - aura.time_last_update > 1.2 or is_force then
+			if now - aura.time_last_update > 1.2 or forced then
 				-- 5 + (time_left - 120) / 240
 				self:UpdateAura(aura, self.len_segment * (time_left + 1080) * 0.0041667, to_shuffle_level)
 				aura:SetAlpha(COOLINE_THEME.active_alpha)
@@ -419,6 +421,7 @@ end
 ---@param start_time number
 ---@param duration number
 ---@param is_spell boolean
+---@return CooldownAura|nil
 function TimelineUI:NewAura(name, texture, start_time, duration, is_spell)
 	-- Filters with the blacklist
 	for _, ignored_name in COOLINE_IGNORE_LIST do
@@ -441,7 +444,7 @@ function TimelineUI:NewAura(name, texture, start_time, duration, is_spell)
 	auras[name] = auras[name] or tremove(self.aura_frame_pool) or CooldownAura:New(self.border, name)
 	local aura = auras[name]
 	aura:Reset(self.icon_size, texture, end_time, is_spell)
-	aura:Show()
+	return aura
 end
 
 ---@param aura CooldownAura
@@ -488,13 +491,14 @@ function TimelineUI:FindAllCooldown()
 				if enabled == 1 then
 					local name = HyperlinkName(GetContainerItemLink(bag_id, slot))
 					if duration > 3 and duration < 3601 then
-						self:NewAura(
+						local aura = self:NewAura(
 							name,
 							GetContainerItemInfo(bag_id, slot),
 							start_time,
 							duration,
 							false
 						)
+						if aura then aura:Show() end
 					elseif duration == 0 then
 						self:ClearAura(name)
 					end
@@ -510,13 +514,14 @@ function TimelineUI:FindAllCooldown()
 		if item_texture and enabled == 1 then
 			local name = HyperlinkName(GetInventoryItemLink('player', slot))
 			if duration > 3 and duration < 3601 then
-				self:NewAura(
+				local aura = self:NewAura(
 					name,
 					item_texture,
 					start_time,
 					duration,
 					false
 				)
+				if aura then aura:Show() end
 			elseif duration == 0 then
 				self:ClearAura(name)
 			end
@@ -531,13 +536,14 @@ function TimelineUI:FindAllCooldown()
 		local spell_texture = GetSpellTexture(id, BOOKTYPE_SPELL)
 		local name = GetSpellName(id, BOOKTYPE_SPELL)
 		if name and spell_texture and enabled == 1 and duration > 2.5 then
-			self:NewAura(
+			local aura = self:NewAura(
 				name,
 				spell_texture,
 				start_time,
 				duration,
 				true
 			)
+			if aura then aura:Show() end
 		elseif duration == 0 then
 			self:ClearAura(name)
 		end

@@ -6,6 +6,7 @@ local AceConsole = LibStub("AceConsole-3.0")
 CoolLineAddon = AceAddon:NewAddon("CoolLine")
 ---@type TimelineUI?
 local main_ui = nil
+local is_debugging = false
 
 local function GetKeysSortedByValue(tbl, sortFunction)
 	local keys = {}
@@ -32,9 +33,22 @@ local function StringToID(str)
 	return replaced
 end
 
+local function GetServerTimeStr()
+	local hour, minute = GetGameTime()
+	local seconds = date("%S")
+	return string.format("%02d:%02d:%s", hour, minute, seconds)
+end
+
+---@param msg string
+local function PrintDebug(msg)
+	if is_debugging then
+		DEFAULT_CHAT_FRAME:AddMessage(format("[%s][CoolLine] %s", GetServerTimeStr(), msg))
+	end
+end
+
 ---@class FramePool
----@field count integer
 ---@field name string
+---@field _next_frame_id integer
 ---@field _pool Frame[]
 local FramePool = {}
 
@@ -42,9 +56,9 @@ local FramePool = {}
 ---@return FramePool
 function FramePool:New(pool_name)
 	return setmetatable({
-		count = 0,
 		name = pool_name or (StringToID(CoolLineAddon.name) .. "FramePool"),
-        _pool = {},
+		_next_frame_id = 1,
+		_pool = {},
 	}, { __index = self })
 end
 
@@ -53,8 +67,11 @@ end
 function FramePool:Acquire(parent)
 	local frame = tremove(self._pool)
 	if not frame then
-		frame = CreateFrame("Frame", self.name .. "#" .. self.count)
-		self.count = self.count + 1
+		frame = CreateFrame("Frame", self.name .. "#" .. self._next_frame_id)
+		PrintDebug("FramePool: creating new frame #" .. self._next_frame_id)
+		self._next_frame_id = self._next_frame_id + 1
+	else
+		PrintDebug("FramePool: reusing a frame")
 	end
 	if parent then
 		frame:SetParent(parent)
@@ -63,9 +80,10 @@ function FramePool:Acquire(parent)
 end
 
 ---@param frame Frame
-function FramePool:Release(frame)
+function FramePool:Recycle(frame)
 	if frame then
 		tinsert(self._pool, frame)
+		PrintDebug("FramePool: recycling a frame. Current pool size: " .. getn(self._pool))
 	end
 end
 
@@ -548,7 +566,7 @@ function TimelineUI:ClearAura(name)
 	local auras = self._auras
 	if auras[name] then
 		auras[name].frame:Hide()
-		self._frame_pool:Release(auras[name].frame)
+		self._frame_pool:Recycle(auras[name].frame)
 		auras[name] = nil
 	end
 end
@@ -692,6 +710,13 @@ local options = {
 			type = "toggle",
 			get = GetReversed,
 			set = SetReversed,
+		},
+		debugging = {
+			name = "Debugging?",
+			desc = "Enables debugging mode",
+			type = "toggle",
+			get = function() return is_debugging end,
+			set = function(info, value) is_debugging = value end,
 		}
 	}
 }

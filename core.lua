@@ -82,8 +82,15 @@ end
 ---@param frame Frame
 function FramePool:Recycle(frame)
 	if frame then
+		-- Clear all textures from the frame to prevent old icons from showing
+		for _, region in ipairs({frame:GetRegions()}) do
+			if region:GetObjectType() == "Texture" then
+				region:SetTexture(nil)
+				break
+			end
+		end
 		tinsert(self._pool, frame)
-		PrintDebug("FramePool: recycling a frame. Current pool size: " .. getn(self._pool))
+		PrintDebug("FramePool: recycled a frame. Current pool size: " .. getn(self._pool))
 	end
 end
 
@@ -521,8 +528,10 @@ function TimelineUI:NewAura(name, texture, start_time, duration, is_spell)
 
 	local aura = auras[name]
 	if aura then
+		PrintDebug("TimelineUI: updating an aura with the same name " .. name)
 		aura:Update(name, self.icon_size, texture, end_time, is_spell)
 	else
+		PrintDebug("TimelineUI: creating a new aura " .. name)
 		aura = CooldownAura:New(
 			self._frame_pool:Acquire(self._border),
 			name,
@@ -531,9 +540,8 @@ function TimelineUI:NewAura(name, texture, start_time, duration, is_spell)
 			end_time,
 			is_spell
 		)
+		auras[name] = aura
 	end
-
-	auras[name] = aura
 	return aura
 end
 

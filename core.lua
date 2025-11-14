@@ -20,54 +20,106 @@ local function GetKeysSortedByValue(tbl, sortFunction)
 	return keys
 end
 
+---@return string
 local function HyperlinkName(hyperlink)
 	local _, _, name = strfind(hyperlink, '|Hitem:%d+:%d+:%d+:%d+|h[[]([^]]+)[]]|h')
 	return name
 end
 
----@class CooldownAura
----@field name string
----@field frame Frame
----@field icon Texture
----@field end_time number
----@field time_last_update number
-local CooldownAura = {}
-
----@param parent Frame
----@param name string
-function CooldownAura:New(parent, name)
-	local inst = setmetatable({}, { __index = CooldownAura })
-
-	local frame = CreateFrame('Frame', nil, parent)
-	frame:SetBackdrop({ bgFile = [[Interface\AddOns\cooline\backdrop.tga]] })
-	local icon = frame:CreateTexture(nil, 'ARTWORK')
-	icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-	icon:SetPoint('TopLeft', 1, -1)
-	icon:SetPoint('BottomRight', -1, 1)
-
-	inst.frame = frame
-	inst.icon = icon
-	inst.end_time = 0
-	inst.name = name
-	inst.time_last_update = 0
-
-	return inst
+---@return string
+local function StringToID(str)
+	local replaced = gsub(str, " ", "_")
+	return replaced
 end
 
+---@class FramePool
+---@field count integer
+---@field name string
+---@field _pool Frame[]
+local FramePool = {}
+
+---@param pool_name string?
+---@return FramePool
+function FramePool:New(pool_name)
+	return setmetatable({
+		count = 0,
+		name = pool_name or (StringToID(CoolLineAddon.name) .. "FramePool"),
+        _pool = {},
+	}, { __index = self })
+end
+
+---@return Frame
+---@param parent Frame|nil
+function FramePool:Acquire(parent)
+	local frame = tremove(self._pool)
+	if not frame then
+		frame = CreateFrame("Frame", self.name .. "#" .. self.count)
+		self.count = self.count + 1
+	end
+	if parent then
+		frame:SetParent(parent)
+	end
+	return frame
+end
+
+---@param frame Frame
+function FramePool:Release(frame)
+	if frame then
+		tinsert(self._pool, frame)
+	end
+end
+
+---@class CooldownAura
+---@field frame Frame
+---@field name string
+---@field end_time number
+---@field time_last_update number
+---@field _icon Texture
+local CooldownAura = {}
+
+---@param frame Frame
+---@param name string
 ---@param size integer
 ---@param texture string
 ---@param end_time number
 ---@param is_spell boolean
-function CooldownAura:Reset(size, texture, end_time, is_spell)
-	self:SetSize(size)
-	self.icon:SetTexture(texture)
+---@return CooldownAura
+function CooldownAura:New(frame, name, size, texture, end_time, is_spell)
+	local inst = setmetatable({
+		frame = frame,
+		name = name,
+		end_time = end_time,
+		time_last_update = 0,
+		_icon = frame:CreateTexture(nil, 'ARTWORK')
+	}, { __index = self })
+
+	frame:SetBackdrop({ bgFile = [[Interface\AddOns\CoolLine\backdrop.tga]] })
+
+	inst._icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	inst._icon:SetPoint('TopLeft', 1, -1)
+	inst._icon:SetPoint('BottomRight', -1, 1)
+
+	self.Update(inst, name, size, texture, end_time, is_spell)
+
+	return inst
+end
+
+---@param name string
+---@param size integer
+---@param texture string
+---@param end_time number
+---@param is_spell boolean
+function CooldownAura:Update(name, size, texture, end_time, is_spell)
+	self.name = name
 	self.end_time = end_time
+	self._icon:SetTexture(texture)
+	self:SetSize(size)
+	self:SetAlpha((end_time - GetTime() > 360) and 0.6 or 1)
 	if is_spell then
 		self.frame:SetBackdropColor(unpack(COOLINE_THEME.spell_color))
 	else
 		self.frame:SetBackdropColor(unpack(COOLINE_THEME.no_spell_color))
 	end
-	self:SetAlpha((end_time - GetTime() > 360) and 0.6 or 1)
 end
 
 ---@param alpha number
@@ -184,45 +236,44 @@ end
 
 -- 5 segments: 0-1s, 1-3s, 3-10s, 10-30s, 30-120s, 120-360s
 ---@class TimelineUI
----@field frame Frame
----@field background Texture
----@field border Frame
----@field overlay Frame
 ---@field len_segment integer
 ---@field icon_size integer
----@field auras table<string, CooldownAura>
 ---@field state State
----@field time_labels TimeLabel[]
----@field aura_frame_pool Frame[]
+---@field _auras table<string, CooldownAura>
+---@field _background Texture
+---@field _border Frame
+---@field _overlay Frame
+---@field _time_labels TimeLabel[]
+---@field _frame Frame
+---@field _frame_pool FramePool
 ---@field _first_label TimeLabel
 ---@field _last_label TimeLabel
 local TimelineUI = {}
 
 function TimelineUI:New()
-	local inst = {}
-	setmetatable(inst, { __index = TimelineUI })
-
-	inst.len_segment = COOLINE_THEME.width / 6
-	inst.icon_size = COOLINE_THEME.height + COOLINE_THEME.icon_outset * 2
-	inst.auras = {}
-	inst.aura_frame_pool = {}
-	inst.state = {
-		is_vertical = false,
-		is_reversed = false,
-		is_dragging = false,
-		x = 0,
-		y = -240,
-		to_shuffle_level = false,
-		time_last_shuffle_level = 0,
-		is_active = false,
-	}
+	local inst = setmetatable({
+		len_segment = COOLINE_THEME.width / 6,
+		icon_size = COOLINE_THEME.height + COOLINE_THEME.icon_outset * 2,
+		state = {
+			is_vertical = false,
+			is_reversed = false,
+			is_dragging = false,
+			x = 0,
+			y = -240,
+			to_shuffle_level = false,
+			time_last_shuffle_level = 0,
+			is_active = false,
+		},
+		_auras = {},
+		_frame_pool = FramePool:New()
+	}, { __index = TimelineUI })
 
 	return inst
 end
 
 function TimelineUI:Enable()
 	local frame = CreateFrame('Button', nil, UIParent)
-	self.frame = frame
+	self._frame = frame
 	local state = self.state
 
 	self.state.is_vertical = COOLINE_THEME.vertical
@@ -237,7 +288,7 @@ function TimelineUI:Enable()
 	background:SetTexture(COOLINE_THEME.statusbar)
 	background:SetVertexColor(unpack(COOLINE_THEME.bg_color))
 	background:SetAllPoints(frame)
-	self.background = background
+	self._background = background
 
 	-- Border frame
 	local border = CreateFrame('Frame', nil, frame)
@@ -248,12 +299,12 @@ function TimelineUI:Enable()
 		edgeSize = COOLINE_THEME.border_size,
 	})
 	border:SetBackdropBorderColor(unpack(COOLINE_THEME.border_color))
-	self.border = border
+	self._border = border
 
 	-- Overlay frame
 	local overlay = CreateFrame('Frame', nil, border)
 	overlay:SetFrameLevel(24) -- TODO this gets changed automatically later, to 9, find out why
-	self.overlay = overlay
+	self._overlay = overlay
 
 	-- Dragging
 	local function OnDragStop()
@@ -286,7 +337,7 @@ function TimelineUI:Enable()
 	last_label:SetLastLabelAlignment(self.state.is_vertical, self.state.is_reversed)
 	self._first_label = first_label
 	self._last_label = last_label
-	self.time_labels = {
+	self._time_labels = {
 		first_label,
 		TimeLabel:New(overlay, '1', self.len_segment),
 		TimeLabel:New(overlay, '3', self.len_segment * 2),
@@ -314,7 +365,7 @@ function TimelineUI:Enable()
 end
 
 function TimelineUI:UpdateTimeLabelPositions()
-	for _, label in ipairs(self.time_labels) do
+	for _, label in ipairs(self._time_labels) do
 		local region = label:GetRegion()
 		region:ClearAllPoints()
 		self:PlaceOnBar(region, label.pos_on_bar, label.anchor_point)
@@ -335,13 +386,13 @@ function TimelineUI:SetAlignment(is_vertical, is_reversed, forced)
 		self:UpdateTimeLabelPositions()
 
 		if is_vertical then
-			self.frame:SetWidth(COOLINE_THEME.height)
-			self.frame:SetHeight(COOLINE_THEME.width)
-			self.background:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1)
+			self._frame:SetWidth(COOLINE_THEME.height)
+			self._frame:SetHeight(COOLINE_THEME.width)
+			self._background:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1)
 		else
-			self.frame:SetWidth(COOLINE_THEME.width)
-			self.frame:SetHeight(COOLINE_THEME.height)
-			self.background:SetTexCoord(0, 1, 0, 1)
+			self._frame:SetWidth(COOLINE_THEME.width)
+			self._frame:SetHeight(COOLINE_THEME.height)
+			self._background:SetTexCoord(0, 1, 0, 1)
 		end
 
 		self:Update(true)
@@ -368,7 +419,7 @@ function TimelineUI:Update(forced)
 	--
 	-- Reduces calls to SetPoint by reducing update frequency for far-away cooldowns.
 	state.is_active = false
-	for name, aura in pairs(self.auras) do
+	for name, aura in pairs(self._auras) do
 		local time_left = aura:TimeLeft()
 		state.is_active = state.is_active or time_left < 360
 
@@ -422,7 +473,7 @@ function TimelineUI:Update(forced)
 			self:UpdateAura(aura, 6 * self.len_segment, to_shuffle_level)
 		end
 	end
-	self.frame:SetAlpha(state.is_active and COOLINE_THEME.active_alpha or COOLINE_THEME.inactive_alpha)
+	self._frame:SetAlpha(state.is_active and COOLINE_THEME.active_alpha or COOLINE_THEME.inactive_alpha)
 end
 
 ---@param name string
@@ -443,16 +494,28 @@ function TimelineUI:NewAura(name, texture, start_time, duration, is_spell)
 
 	-- Filters out duplicates with the same end_time
 	-- assuming human can not press two buttons at exactly the same time?
-	local auras = self.auras
+	local auras = self._auras
 	for _, aura in pairs(auras) do
 		if aura.end_time == end_time then
 			return
 		end
 	end
 
-	auras[name] = auras[name] or tremove(self.aura_frame_pool) or CooldownAura:New(self.border, name)
 	local aura = auras[name]
-	aura:Reset(self.icon_size, texture, end_time, is_spell)
+	if aura then
+		aura:Update(name, self.icon_size, texture, end_time, is_spell)
+	else
+		aura = CooldownAura:New(
+			self._frame_pool:Acquire(self._border),
+			name,
+			self.icon_size,
+			texture,
+			end_time,
+			is_spell
+		)
+	end
+
+	auras[name] = aura
 	return aura
 end
 
@@ -463,7 +526,7 @@ function TimelineUI:UpdateAura(aura, position, to_shuffle_level)
 	if aura.end_time - GetTime() < COOLINE_THEME.threshold then
 		-- Expiring-soon cooldowns: sort by end_time in descending order
 		-- so the most urgent ones appear on top
-		local sorted = GetKeysSortedByValue(self.auras, function(a, b) return a.end_time > b.end_time end)
+		local sorted = GetKeysSortedByValue(self._auras, function(a, b) return a.end_time > b.end_time end)
 		for i, k in ipairs(sorted) do
 			if aura.name == k then
 				aura:SetFrameLevel(i + 2)
@@ -482,10 +545,10 @@ end
 
 function TimelineUI:ClearAura(name)
 	-- Does not delete the frame, just hides and puts it into the pool
-	local auras = self.auras
+	local auras = self._auras
 	if auras[name] then
 		auras[name].frame:Hide()
-		tinsert(self.aura_frame_pool, auras[name])
+		self._frame_pool:Release(auras[name].frame)
 		auras[name] = nil
 	end
 end
@@ -570,15 +633,15 @@ function TimelineUI:PlaceOnBar(region, offset, anchor_point)
 
 	if self.state.is_vertical then
 		if self.state.is_reversed then
-			region:SetPoint(anchor_point, self.frame, 'Top', 0, -offset)
+			region:SetPoint(anchor_point, self._frame, 'Top', 0, -offset)
 		else
-			region:SetPoint(anchor_point, self.frame, 'Bottom', 0, offset)
+			region:SetPoint(anchor_point, self._frame, 'Bottom', 0, offset)
 		end
 	else
 		if self.state.is_reversed then
-			region:SetPoint(anchor_point, self.frame, 'Right', -offset, 0)
+			region:SetPoint(anchor_point, self._frame, 'Right', -offset, 0)
 		else
-			region:SetPoint(anchor_point, self.frame, 'Left', offset, 0)
+			region:SetPoint(anchor_point, self._frame, 'Left', offset, 0)
 		end
 	end
 end

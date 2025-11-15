@@ -5,6 +5,30 @@ local AceConsole = LibStub("AceConsole-3.0")
 local AceDB = LibStub("AceDB-3.0")
 local AceDBOptions = LibStub("AceDBOptions-3.0")
 
+local COOLLINE_SETTINGS = {
+	width = 360,
+	height = 18,
+	statusbar = [[Interface\TargetingFrame\UI-StatusBar]],
+	bg_color = { 0, 0, 0, 0.5 },
+	border = [[Interface\DialogFrame\UI-DialogBox-Border]],
+	border_size = 16,
+	border_inset = 4,
+	border_color = { 1, 1, 1, 1 },
+	icon_outset = 2,
+	font = [[Fonts\FRIZQT__.TTF]],
+	font_size = 10,
+	font_color = { 1, 1, 1, 0.8 },
+	spell_color = { 0.8, 0.4, 0, 1 },
+	no_spell_color = { 0, 0, 0, 1 },
+	inactive_alpha = 0.5,
+	active_alpha = 1.0,
+	threshold = 3.0,
+    cooldown_blacklist = {
+		"hearthstone"
+	},
+	loaded_message = 'Cooline loaded: move the location of the cooline bar by holding <alt> while dragging it with left mouse button.'
+}
+
 CoolLineAddon = AceAddon:NewAddon("CoolLine")
 ---@type TimelineUI?
 local main_ui = nil
@@ -162,7 +186,7 @@ local GetConfigReversed, SetConfigReversed = GenConfigGetterSetter("profile.gene
 )
 
 local GetConfigTimelineXOffset, SetConfigTimelineXOffset = GenConfigGetterSetter(
-    "profile.general.timeline_x_offset",
+	"profile.general.timeline_x_offset",
 	function(new_value, old_value, ui, config)
 		if new_value ~= old_value then
 			ui:UpdateXOffset(new_value)
@@ -274,9 +298,9 @@ function CooldownAura:Update(name, size, texture, end_time, is_spell)
 	self:SetSize(size)
 	self:SetAlpha((end_time - GetTime() > 360) and 0.6 or 1)
 	if is_spell then
-		self.frame:SetBackdropColor(unpack(COOLINE_THEME.spell_color))
+		self.frame:SetBackdropColor(unpack(COOLLINE_SETTINGS.spell_color))
 	else
-		self.frame:SetBackdropColor(unpack(COOLINE_THEME.no_spell_color))
+		self.frame:SetBackdropColor(unpack(COOLLINE_SETTINGS.no_spell_color))
 	end
 end
 
@@ -318,12 +342,12 @@ local TimeLabel = {}
 ---@return table|TimeLabel
 function TimeLabel:New(parent, label, pos_on_bar)
 	local fs = parent:CreateFontString(nil, 'OVERLAY')
-	fs:SetFont(COOLINE_THEME.font, COOLINE_THEME.font_size)
-	fs:SetTextColor(unpack(COOLINE_THEME.font_color))
+	fs:SetFont(COOLLINE_SETTINGS.font, COOLLINE_SETTINGS.font_size)
+	fs:SetTextColor(unpack(COOLLINE_SETTINGS.font_color))
 	fs:SetText(label)
-	fs:SetWidth(COOLINE_THEME.font_size * 3)
-	fs:SetHeight(COOLINE_THEME.font_size + 2)
-	fs:SetShadowColor(unpack(COOLINE_THEME.bg_color))
+	fs:SetWidth(COOLLINE_SETTINGS.font_size * 3)
+	fs:SetHeight(COOLLINE_SETTINGS.font_size + 2)
+	fs:SetShadowColor(unpack(COOLLINE_SETTINGS.bg_color))
 	fs:SetShadowOffset(1, -1)
 	fs:SetJustifyH('Center')
 
@@ -406,8 +430,8 @@ local TimelineUI = {}
 
 function TimelineUI:New()
 	local inst = setmetatable({
-		len_segment = COOLINE_THEME.width / 6,
-		icon_size = COOLINE_THEME.height + COOLINE_THEME.icon_outset * 2,
+		len_segment = COOLLINE_SETTINGS.width / 6,
+		icon_size = COOLLINE_SETTINGS.height + COOLLINE_SETTINGS.icon_outset * 2,
 		state = {
 			vertical = false,
 			reversed = false,
@@ -434,20 +458,20 @@ function TimelineUI:Enable()
 
 	-- Background texture
 	local background = frame:CreateTexture(nil, 'ARTWORK')
-	background:SetTexture(COOLINE_THEME.statusbar)
-	background:SetVertexColor(unpack(COOLINE_THEME.bg_color))
+	background:SetTexture(COOLLINE_SETTINGS.statusbar)
+	background:SetVertexColor(unpack(COOLLINE_SETTINGS.bg_color))
 	background:SetAllPoints(frame)
 	self._background = background
 
 	-- Border frame
 	local border = CreateFrame('Frame', nil, frame)
-	border:SetPoint('TopLeft', -COOLINE_THEME.border_inset, COOLINE_THEME.border_inset)
-	border:SetPoint('BottomRight', COOLINE_THEME.border_inset, -COOLINE_THEME.border_inset)
+	border:SetPoint('TopLeft', -COOLLINE_SETTINGS.border_inset, COOLLINE_SETTINGS.border_inset)
+	border:SetPoint('BottomRight', COOLLINE_SETTINGS.border_inset, -COOLLINE_SETTINGS.border_inset)
 	border:SetBackdrop({
-		edgeFile = COOLINE_THEME.border,
-		edgeSize = COOLINE_THEME.border_size,
+		edgeFile = COOLLINE_SETTINGS.border,
+		edgeSize = COOLLINE_SETTINGS.border_size,
 	})
-	border:SetBackdropBorderColor(unpack(COOLINE_THEME.border_color))
+	border:SetBackdropBorderColor(unpack(COOLLINE_SETTINGS.border_color))
 	self._border = border
 
 	-- Overlay frame
@@ -537,12 +561,12 @@ function TimelineUI:UpdateAlignment(vertical, reversed)
 	self:UpdateTimeLabelPositions(vertical, reversed)
 
 	if vertical then
-		self._frame:SetWidth(COOLINE_THEME.height)
-		self._frame:SetHeight(COOLINE_THEME.width)
+		self._frame:SetWidth(COOLLINE_SETTINGS.height)
+		self._frame:SetHeight(COOLLINE_SETTINGS.width)
 		self._background:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1)
 	else
-		self._frame:SetWidth(COOLINE_THEME.width)
-		self._frame:SetHeight(COOLINE_THEME.height)
+		self._frame:SetWidth(COOLLINE_SETTINGS.width)
+		self._frame:SetHeight(COOLLINE_SETTINGS.height)
 		self._background:SetTexCoord(0, 1, 0, 1)
 	end
 
@@ -645,14 +669,14 @@ function TimelineUI:Update(forced, vertical, reversed)
 				-- 5 + (time_left - 120) / 240
 				self:UpdateAura(aura, self.len_segment * (time_left + 1080) * 0.0041667, to_shuffle_level,
 					vertical, reversed)
-				aura:SetAlpha(COOLINE_THEME.active_alpha)
+				aura:SetAlpha(COOLLINE_SETTINGS.active_alpha)
 				aura.time_last_update = now
 			end
 		else
 			self:UpdateAura(aura, 6 * self.len_segment, to_shuffle_level, vertical, reversed)
 		end
 	end
-	self._frame:SetAlpha(state.is_active and COOLINE_THEME.active_alpha or COOLINE_THEME.inactive_alpha)
+	self._frame:SetAlpha(state.is_active and COOLLINE_SETTINGS.active_alpha or COOLLINE_SETTINGS.inactive_alpha)
 end
 
 ---@param name string
@@ -663,7 +687,7 @@ end
 ---@return CooldownAura|nil
 function TimelineUI:NewAura(name, texture, start_time, duration, is_spell)
 	-- Filters with the blacklist
-	for _, ignored_name in COOLINE_IGNORE_LIST do
+	for _, ignored_name in COOLLINE_SETTINGS.cooldown_blacklist do
 		if strupper(name) == strupper(ignored_name) then
 			return
 		end
@@ -705,7 +729,7 @@ end
 ---@param vertical boolean
 ---@param reversed boolean
 function TimelineUI:UpdateAura(aura, position, to_shuffle_level, vertical, reversed)
-	if aura.end_time - GetTime() < COOLINE_THEME.threshold then
+	if aura.end_time - GetTime() < COOLLINE_SETTINGS.threshold then
 		-- Expiring-soon cooldowns: sort by end_time in descending order
 		-- so the most urgent ones appear on top
 		local sorted = GetKeysSortedByValue(self._auras, function(a, b) return a.end_time > b.end_time end)
@@ -855,13 +879,13 @@ local options = {
 					get = function(info) return GetConfigReversed() end,
 					set = function(info, value) SetConfigReversed(value) end,
 				},
-                timeline_x_offset = {
+				timeline_x_offset = {
 					name = "Timeline X Offset",
 					desc = "Offset of the timeline on the X axis",
 					type = "range",
 					min = -2000,
 					max = 2000,
-                    softMin = -1000,
+					softMin = -1000,
 					softMax = 1000,
 					step = 1,
 					order = 3,
@@ -874,7 +898,7 @@ local options = {
 					type = "range",
 					min = -2000,
 					max = 2000,
-                    softMin = -1000,
+					softMin = -1000,
 					softMax = 1000,
 					step = 1,
 					order = 4,
@@ -899,7 +923,7 @@ local defaults = {
 		general = {
 			vertical = false,
 			reversed = false,
-            timeline_x_offset = 0,
+			timeline_x_offset = 0,
 			timeline_y_offset = -240,
 			debugging = false
 		}
@@ -922,6 +946,6 @@ end
 function CoolLineAddon:OnEnable()
 	if main_ui then
 		main_ui:Enable()
-		DEFAULT_CHAT_FRAME:AddMessage(COOLINE_LOADED_MESSAGE);
+		DEFAULT_CHAT_FRAME:AddMessage(COOLLINE_SETTINGS.loaded_message);
 	end
 end

@@ -16,5 +16,4 @@ Libs\AceConfig-3.0\AceConfig-3.0.xml
 Libs\AceDB-3.0\AceDB-3.0.xml
 Libs\AceDBOptions-3.0\AceDBOptions-3.0.xml
 
-settings.lua
 core.lua

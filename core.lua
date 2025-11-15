@@ -122,7 +122,7 @@ end
 ---Generates getter and setter function for an entry in db
 ---@generic T
 ---@param store_path string a dot-separated path to the db entry
----@param func_on_set fun(new_value: T, old_value: T, ui: TimelineUI, config: table): nil
+---@param func_on_set? fun(new_value: T, old_value: T, ui: TimelineUI, config: table): nil
 ---@return fun(): T getter_func
 ---@return fun(new_value: T): nil setter_func
 local function GenConfigGetterSetter(store_path, func_on_set)
@@ -135,7 +135,9 @@ local function GenConfigGetterSetter(store_path, func_on_set)
 	local function setter_func(new_value)
 		if main_ui and config_store then
 			local old_value = GetTableValueByPath(config_store, store_path)
-			func_on_set(new_value, old_value, main_ui, config_store)
+			if func_on_set then
+				func_on_set(new_value, old_value, main_ui, config_store)
+			end
 			SetTableValueByPath(config_store, store_path, new_value)
 		end
 	end
@@ -155,6 +157,24 @@ local GetConfigReversed, SetConfigReversed = GenConfigGetterSetter("profile.gene
 	function(new_value, old_value, ui, config)
 		if new_value ~= old_value then
 			ui:UpdateReversed(new_value)
+		end
+	end
+)
+
+local GetConfigTimelineXOffset, SetConfigTimelineXOffset = GenConfigGetterSetter(
+    "profile.general.timeline_x_offset",
+	function(new_value, old_value, ui, config)
+		if new_value ~= old_value then
+			ui:UpdateXOffset(new_value)
+		end
+	end
+)
+
+local GetConfigTimelineYOffset, SetConfigTimelineYOffset = GenConfigGetterSetter(
+	"profile.general.timeline_y_offset",
+	function(new_value, old_value, ui, config)
+		if new_value ~= old_value then
+			ui:UpdateYOffset(new_value)
 		end
 	end
 )
@@ -363,9 +383,7 @@ function TimeLabel:SetLastLabelAlignment(vertical, reversed)
 end
 
 ---@alias State {
----  is_dragging: boolean,
----  x: integer,
----  y: integer,
+---  dragging: boolean,
 ---  to_shuffle_level: boolean,
 ---  time_last_shuffle_level: number,
 ---  is_active: boolean }
@@ -393,9 +411,7 @@ function TimelineUI:New()
 		state = {
 			vertical = false,
 			reversed = false,
-			is_dragging = false,
-			x = 0,
-			y = -240,
+			dragging = false,
 			to_shuffle_level = false,
 			time_last_shuffle_level = 0,
 			is_active = false,
@@ -414,7 +430,7 @@ function TimelineUI:Enable()
 
 	frame:SetClampedToScreen(true)
 	frame:SetMovable(true)
-	frame:SetPoint('Center', state.x, state.y)
+	self:UpdatePositionOffset(GetConfigTimelineXOffset(), GetConfigTimelineYOffset())
 
 	-- Background texture
 	local background = frame:CreateTexture(nil, 'ARTWORK')
@@ -444,20 +460,23 @@ function TimelineUI:Enable()
 		frame:StopMovingOrSizing()
 		local x, y = frame:GetCenter()
 		local ux, uy = UIParent:GetCenter()
-		state.x, state.y = floor(x - ux + 0.5), floor(y - uy + 0.5)
-		state.is_dragging = false
+		SetConfigTimelineXOffset(floor(x - ux + 0.5))
+		SetConfigTimelineYOffset(floor(y - uy + 0.5))
+		state.dragging = false
 	end
 	frame:RegisterForDrag('LeftButton')
 	frame:SetScript('OnDragStart', function()
-		state.is_dragging = true
+		state.dragging = true
 		frame:StartMoving()
 	end)
 	frame:SetScript('OnDragStop', function()
 		OnDragStop()
 	end)
+
+	-- UI update
 	frame:SetScript('OnUpdate', function()
 		frame:EnableMouse(IsAltKeyDown())
-		if not IsAltKeyDown() and state.is_dragging then
+		if not IsAltKeyDown() and state.dragging then
 			OnDragStop()
 		end
 		self:Update(false, GetConfigVertical(), GetConfigReversed())
@@ -538,6 +557,18 @@ end
 ---@param reversed boolean
 function TimelineUI:UpdateReversed(reversed)
 	self:UpdateAlignment(GetConfigVertical(), reversed)
+end
+
+function TimelineUI:UpdatePositionOffset(x_offset, y_offset)
+	self._frame:SetPoint('Center', x_offset, y_offset)
+end
+
+function TimelineUI:UpdateXOffset(x_offset)
+	self._frame:SetPoint('Center', x_offset, GetConfigTimelineYOffset())
+end
+
+function TimelineUI:UpdateYOffset(y_offset)
+	self._frame:SetPoint('Center', GetConfigTimelineXOffset(), y_offset)
 end
 
 ---@param forced boolean
@@ -824,6 +855,32 @@ local options = {
 					get = function(info) return GetConfigReversed() end,
 					set = function(info, value) SetConfigReversed(value) end,
 				},
+                timeline_x_offset = {
+					name = "Timeline X Offset",
+					desc = "Offset of the timeline on the X axis",
+					type = "range",
+					min = -2000,
+					max = 2000,
+                    softMin = -1000,
+					softMax = 1000,
+					step = 1,
+					order = 3,
+					get = function(info) return GetConfigTimelineXOffset() end,
+					set = function(info, value) SetConfigTimelineXOffset(value) end,
+				},
+				timeline_y_offset = {
+					name = "Timeline Y Offset",
+					desc = "Offset of the timeline on the Y axis",
+					type = "range",
+					min = -2000,
+					max = 2000,
+                    softMin = -1000,
+					softMax = 1000,
+					step = 1,
+					order = 4,
+					get = function(info) return GetConfigTimelineYOffset() end,
+					set = function(info, value) SetConfigTimelineYOffset(value) end,
+				},
 				debugging = {
 					name = "Debugging?",
 					desc = "Enables debugging mode",
@@ -842,6 +899,8 @@ local defaults = {
 		general = {
 			vertical = false,
 			reversed = false,
+            timeline_x_offset = 0,
+			timeline_y_offset = -240,
 			debugging = false
 		}
 	}

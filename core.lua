@@ -2,10 +2,14 @@ local AceAddon = LibStub("AceAddon-3.0")
 local AceConfig = LibStub("AceConfig-3.0")
 local AceConfigDialog = LibStub("AceConfigDialog-3.0")
 local AceConsole = LibStub("AceConsole-3.0")
+local AceDB = LibStub("AceDB-3.0")
+local AceDBOptions = LibStub("AceDBOptions-3.0")
 
 CoolLineAddon = AceAddon:NewAddon("CoolLine")
 ---@type TimelineUI?
 local main_ui = nil
+---@type table?
+local config_store = nil
 local is_debugging = false
 
 local function GetKeysSortedByValue(tbl, sortFunction)
@@ -39,12 +43,116 @@ local function GetServerTimeStr()
 	return string.format("%02d:%02d:%s", hour, minute, seconds)
 end
 
+---Splits a string by a separator
+---@param str string
+---@param pat string separator pattern
+---@return string[]
+local function SplitString(str, pat)
+	local t = {}
+	-- Escape every special pattern character
+	pat = string.gsub(pat, "([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
+	local fpat = "(.-)" .. pat
+	local last_end = 1
+	local s, e, cap = string.find(str, fpat, 1)
+	while s do
+		if s ~= 1 or cap ~= "" then
+			table.insert(t, cap)
+		end
+		last_end = e + 1
+		s, e, cap = string.find(str, fpat, last_end)
+	end
+	if last_end <= string.len(str) then
+		cap = string.sub(str, last_end)
+		table.insert(t, cap)
+	end
+	return t
+end
+
+---@param table_ table
+---@param path string a dot-separated path string to a key
+---@return any # The value at the end of the path, or nil if the path doesn't exist
+local function GetTableValueByPath(table_, path)
+	local cur_table = table_
+	local path_list = SplitString(path, ".")
+
+	for _, key in ipairs(path_list) do
+		if cur_table == nil or type(cur_table) ~= "table" then
+			return nil
+		end
+
+		cur_table = cur_table[key]
+	end
+
+	return cur_table
+end
+
+---@param table_ table
+---@param path string a dot-separated path string to a key
+---@param value any
+---@return boolean
+local function SetTableValueByPath(table_, path, value)
+	local cur_table = table_
+	local path_list = SplitString(path, ".")
+
+	-- Iterate until the second last key
+	for i = 1, table.getn(path_list) - 1 do
+		local key = path_list[i]
+		if cur_table[key] == nil or type(cur_table[key]) ~= "table" then
+			-- Can't iterate through a non-table value
+			-- Does not create intermediate tables
+			return false
+		end
+		cur_table = cur_table[key]
+	end
+
+	local last_key = path_list[table.getn(path_list)]
+	cur_table[last_key] = value
+
+	return true
+end
+
 ---@param msg string
 local function PrintDebug(msg)
 	if is_debugging then
 		DEFAULT_CHAT_FRAME:AddMessage(format("[%s][CoolLine] %s", GetServerTimeStr(), msg))
 	end
 end
+
+-- Configuration
+---Generates getter and setter function for an entry in db
+---@generic T
+---@param store_path string a dot-separated path to the db entry
+---@param func_on_set fun(value: T, ui: TimelineUI, config: table): nil
+---@return fun(): T getter_func
+---@return fun(value: T): nil setter_func
+local function GenConfigGetterSetter(store_path, func_on_set)
+	local function getter_func()
+		if config_store then
+			return GetTableValueByPath(config_store, store_path)
+		end
+	end
+
+	local function setter_func(value)
+		if main_ui and config_store then
+			func_on_set(value, main_ui, config_store)
+			SetTableValueByPath(config_store, store_path, value)
+		end
+	end
+
+	return getter_func, setter_func
+end
+
+local GetConfigIsVertical, SetConfigIsVertical = GenConfigGetterSetter("profile.general.is_vertical",
+	function(value, ui, config)
+		ui:SetIsVertical(value)
+	end
+)
+
+local GetConfigIsReversed, SetConfigIsReversed = GenConfigGetterSetter("profile.general.is_reversed",
+	function(value, ui, config)
+		ui:SetIsReversed(value)
+	end
+)
 
 ---@class FramePool
 ---@field name string
@@ -83,7 +191,7 @@ end
 function FramePool:Recycle(frame)
 	if frame then
 		-- Clear all textures from the frame to prevent old icons from showing
-		for _, region in ipairs({frame:GetRegions()}) do
+		for _, region in ipairs({ frame:GetRegions() }) do
 			if region:GetObjectType() == "Texture" then
 				region:SetTexture(nil)
 				break
@@ -250,8 +358,6 @@ function TimeLabel:SetLastLabelAlignment(is_vertical, is_reversed)
 end
 
 ---@alias State {
----  is_vertical: boolean,
----  is_reversed: boolean,
 ---  is_dragging: boolean,
 ---  x: integer,
 ---  y: integer,
@@ -301,9 +407,6 @@ function TimelineUI:Enable()
 	self._frame = frame
 	local state = self.state
 
-	self.state.is_vertical = COOLINE_THEME.vertical
-	self.state.is_reversed = COOLINE_THEME.reverse
-
 	frame:SetClampedToScreen(true)
 	frame:SetMovable(true)
 	frame:SetPoint('Center', state.x, state.y)
@@ -352,14 +455,17 @@ function TimelineUI:Enable()
 		if not IsAltKeyDown() and state.is_dragging then
 			OnDragStop()
 		end
-		self:Update(false)
+		self:Update(false, GetConfigIsVertical(), GetConfigIsReversed())
 	end)
+
+	local is_vertical = GetConfigIsVertical()
+	local is_reversed = GetConfigIsReversed()
 
 	-- 7 Text labels for time markers
 	local first_label = TimeLabel:New(overlay, '0', 0)
 	local last_label = TimeLabel:New(overlay, '6m', self.len_segment * 6)
-	first_label:SetFirstLabelAlignment(self.state.is_vertical, self.state.is_reversed)
-	last_label:SetLastLabelAlignment(self.state.is_vertical, self.state.is_reversed)
+	first_label:SetFirstLabelAlignment(is_vertical, is_reversed)
+	last_label:SetLastLabelAlignment(is_vertical, is_reversed)
 	self._first_label = first_label
 	self._last_label = last_label
 	self._time_labels = {
@@ -371,7 +477,7 @@ function TimelineUI:Enable()
 		TimeLabel:New(overlay, '2m', self.len_segment * 5),
 		last_label
 	}
-	self:UpdateTimeLabelPositions()
+	self:UpdateTimeLabelPositions(is_vertical, is_reversed)
 
 	-- Events
 	frame:RegisterEvent('VARIABLES_LOADED')
@@ -380,20 +486,22 @@ function TimelineUI:Enable()
 	frame:SetScript('OnEvent', function()
 		if event == 'VARIABLES_LOADED' or event == 'BAG_UPDATE_COOLDOWN' or event == 'SPELL_UPDATE_COOLDOWN' then
 			self:FindAllCooldown()
-			self:Update(true)
+			self:Update(true, is_vertical, is_reversed)
 		end
 	end)
 
-	self:SetAlignment(self.state.is_vertical, self.state.is_reversed, true)
+	self:SetAlignment(is_vertical, is_reversed, true)
 	self:FindAllCooldown()
 	frame:Show()
 end
 
-function TimelineUI:UpdateTimeLabelPositions()
+---@param is_vertical boolean
+---@param is_reversed boolean
+function TimelineUI:UpdateTimeLabelPositions(is_vertical, is_reversed)
 	for _, label in ipairs(self._time_labels) do
 		local region = label:GetRegion()
 		region:ClearAllPoints()
-		self:PlaceOnBar(region, label.pos_on_bar, label.anchor_point)
+		self:PlaceOnBar(region, label.pos_on_bar, label.anchor_point, is_vertical, is_reversed)
 	end
 end
 
@@ -401,14 +509,11 @@ end
 ---@param is_reversed boolean
 ---@param forced boolean|nil
 function TimelineUI:SetAlignment(is_vertical, is_reversed, forced)
-	local changed = self.state.is_vertical ~= is_vertical or self.state.is_reversed ~= is_reversed
+	local changed = GetConfigIsVertical() ~= is_vertical or GetConfigIsReversed() ~= is_reversed
 	if changed or forced then
-		self.state.is_vertical = is_vertical
-		self.state.is_reversed = is_reversed
-
 		self._first_label:SetFirstLabelAlignment(is_vertical, is_reversed)
 		self._last_label:SetLastLabelAlignment(is_vertical, is_reversed)
-		self:UpdateTimeLabelPositions()
+		self:UpdateTimeLabelPositions(is_vertical, is_reversed)
 
 		if is_vertical then
 			self._frame:SetWidth(COOLINE_THEME.height)
@@ -420,12 +525,24 @@ function TimelineUI:SetAlignment(is_vertical, is_reversed, forced)
 			self._background:SetTexCoord(0, 1, 0, 1)
 		end
 
-		self:Update(true)
+		self:Update(true, is_vertical, is_reversed)
 	end
 end
 
+---@param is_vertical boolean
+function TimelineUI:SetIsVertical(is_vertical)
+	self:SetAlignment(is_vertical, GetConfigIsReversed(), true)
+end
+
+---@param is_reversed boolean
+function TimelineUI:SetIsReversed(is_reversed)
+	self:SetAlignment(GetConfigIsVertical(), is_reversed, true)
+end
+
 ---@param forced boolean
-function TimelineUI:Update(forced)
+---@param is_vertical boolean
+---@param is_reversed boolean
+function TimelineUI:Update(forced, is_vertical, is_reversed)
 	local state = self.state
 	local now = GetTime()
 
@@ -453,49 +570,54 @@ function TimelineUI:Update(forced)
 			state.is_active = true
 			self:ClearAura(name)
 		elseif time_left < 0 then
-			self:UpdateAura(aura, 0, to_shuffle_level)
+			self:UpdateAura(aura, 0, to_shuffle_level, is_vertical, is_reversed)
 			-- Adds fading effect after expired
 			aura:SetAlpha(max(1 + time_left, 0))
 		elseif time_left < 0.3 then
 			-- icon_size + icon_size * (0.3 - time_left) / 0.2
 			local size = floor(self.icon_size * (0.5 - time_left) * 5)
 			aura:SetSize(size)
-			self:UpdateAura(aura, self.len_segment * time_left, to_shuffle_level)
+			self:UpdateAura(aura, self.len_segment * time_left, to_shuffle_level, is_vertical, is_reversed)
 		elseif time_left < 1 then
-			self:UpdateAura(aura, self.len_segment * time_left, to_shuffle_level)
+			self:UpdateAura(aura, self.len_segment * time_left, to_shuffle_level, is_vertical, is_reversed)
 		elseif time_left < 3 then
 			if now - aura.time_last_update > 0.02 or forced then
-				self:UpdateAura(aura, self.len_segment * (time_left + 1) * 0.5, to_shuffle_level)
+                self:UpdateAura(aura, self.len_segment * (time_left + 1) * 0.5, to_shuffle_level,
+					is_vertical, is_reversed)
 				aura.time_last_update = now
 			end
 		elseif time_left < 10 then
 			local threshold = time_left > 4 and 0.05 or 0.02
 			if now - aura.time_last_update > threshold or forced then
 				-- 2 + (time_left - 3) / 7
-				self:UpdateAura(aura, self.len_segment * (time_left + 11) * 0.14286, to_shuffle_level)
+                self:UpdateAura(aura, self.len_segment * (time_left + 11) * 0.14286, to_shuffle_level,
+					is_vertical, is_reversed)
 				aura.time_last_update = now
 			end
 		elseif time_left < 30 then
 			if now - aura.time_last_update > 0.06 or forced then
 				-- 3 + (time_left - 10) / 20
-				self:UpdateAura(aura, self.len_segment * (time_left + 50) * 0.05, to_shuffle_level)
+                self:UpdateAura(aura, self.len_segment * (time_left + 50) * 0.05, to_shuffle_level,
+					is_vertical, is_reversed)
 				aura.time_last_update = now
 			end
 		elseif time_left < 120 then
 			if now - aura.time_last_update > 0.18 or forced then
 				-- 4 + (time_left - 30) / 90
-				self:UpdateAura(aura, self.len_segment * (time_left + 330) * 0.011111, to_shuffle_level)
+                self:UpdateAura(aura, self.len_segment * (time_left + 330) * 0.011111, to_shuffle_level,
+					is_vertical, is_reversed)
 				aura.time_last_update = now
 			end
 		elseif time_left < 360 then
 			if now - aura.time_last_update > 1.2 or forced then
 				-- 5 + (time_left - 120) / 240
-				self:UpdateAura(aura, self.len_segment * (time_left + 1080) * 0.0041667, to_shuffle_level)
+                self:UpdateAura(aura, self.len_segment * (time_left + 1080) * 0.0041667, to_shuffle_level,
+					is_vertical, is_reversed)
 				aura:SetAlpha(COOLINE_THEME.active_alpha)
 				aura.time_last_update = now
 			end
 		else
-			self:UpdateAura(aura, 6 * self.len_segment, to_shuffle_level)
+			self:UpdateAura(aura, 6 * self.len_segment, to_shuffle_level, is_vertical, is_reversed)
 		end
 	end
 	self._frame:SetAlpha(state.is_active and COOLINE_THEME.active_alpha or COOLINE_THEME.inactive_alpha)
@@ -548,7 +670,9 @@ end
 ---@param aura CooldownAura
 ---@param position number
 ---@param to_shuffle_level boolean
-function TimelineUI:UpdateAura(aura, position, to_shuffle_level)
+---@param is_vertical boolean
+---@param is_reversed boolean
+function TimelineUI:UpdateAura(aura, position, to_shuffle_level, is_vertical, is_reversed)
 	if aura.end_time - GetTime() < COOLINE_THEME.threshold then
 		-- Expiring-soon cooldowns: sort by end_time in descending order
 		-- so the most urgent ones appear on top
@@ -566,7 +690,7 @@ function TimelineUI:UpdateAura(aura, position, to_shuffle_level)
 		end
 	end
 
-	self:PlaceOnBar(aura.frame, position)
+	self:PlaceOnBar(aura.frame, position, nil, is_vertical, is_reversed)
 end
 
 function TimelineUI:ClearAura(name)
@@ -652,19 +776,21 @@ end
 ---@param region Region
 ---@param offset number
 ---@param anchor_point FramePoint|nil
-function TimelineUI:PlaceOnBar(region, offset, anchor_point)
+---@param is_vertical boolean
+---@param is_reversed boolean
+function TimelineUI:PlaceOnBar(region, offset, anchor_point, is_vertical, is_reversed)
 	if not anchor_point then
 		anchor_point = 'Center'
 	end
 
-	if self.state.is_vertical then
-		if self.state.is_reversed then
+	if is_vertical then
+		if is_reversed then
 			region:SetPoint(anchor_point, self._frame, 'Top', 0, -offset)
 		else
 			region:SetPoint(anchor_point, self._frame, 'Bottom', 0, offset)
 		end
 	else
-		if self.state.is_reversed then
+		if is_reversed then
 			region:SetPoint(anchor_point, self._frame, 'Right', -offset, 0)
 		else
 			region:SetPoint(anchor_point, self._frame, 'Left', offset, 0)
@@ -672,65 +798,59 @@ function TimelineUI:PlaceOnBar(region, offset, anchor_point)
 	end
 end
 
--- Configuration
-local function SetVertical(info, value)
-	if main_ui then
-		main_ui:SetAlignment(value, main_ui.state.is_reversed)
-	end
-end
-
----@return boolean
-local function GetVertical(info)
-	if main_ui then
-		return main_ui.state.is_vertical
-	end
-	return false
-end
-
-local function SetReversed(info, value)
-	if main_ui then
-		main_ui:SetAlignment(main_ui.state.is_vertical, value)
-	end
-end
-
----@return boolean
-local function GetReversed(info)
-	if main_ui then
-		return main_ui.state.is_reversed
-	end
-	return false
-end
-
 local options = {
 	name = "CoolLine",
 	type = "group",
 	args = {
-		vertical = {
-			name = "Vertical?",
-			desc = "Makes the timeline vertical or not",
-			type = "toggle",
-			get = GetVertical,
-			set = SetVertical,
-		},
-		reversed = {
-			name = "Reversed?",
-			desc = "Makes the timeline reversed or not",
-			type = "toggle",
-			get = GetReversed,
-			set = SetReversed,
-		},
-		debugging = {
-			name = "Debugging?",
-			desc = "Enables debugging mode",
-			type = "toggle",
-			get = function() return is_debugging end,
-			set = function(info, value) is_debugging = value end,
+		general = {
+			name = "General",
+			type = "group",
+			order = 1,
+			args = {
+				is_vertical = {
+					name = "Vertical?",
+					desc = "Makes the timeline vertical or not",
+					type = "toggle",
+					order = 1,
+					get = function(info) return GetConfigIsVertical() end,
+					set = function(info, value) SetConfigIsVertical(value) end,
+				},
+				is_reversed = {
+					name = "Reversed?",
+					desc = "Makes the timeline reversed or not",
+					type = "toggle",
+					order = 2,
+					get = function(info) return GetConfigIsReversed() end,
+					set = function(info, value) SetConfigIsReversed(value) end,
+				},
+				is_debugging = {
+					name = "Debugging?",
+					desc = "Enables debugging mode",
+					type = "toggle",
+					order = 10,
+					get = function(info) return is_debugging end,
+					set = function(info, value) is_debugging = value end,
+				}
+			}
+		}
+	}
+}
+
+local defaults = {
+	profile = {
+		general = {
+			is_vertical = false,
+			is_reversed = false,
+			is_debugging = false
 		}
 	}
 }
 
 function CoolLineAddon:OnInitialize()
+	config_store = AceDB:New("CoolLineDB", defaults)
 	main_ui = TimelineUI:New()
+	options.args.profile = AceDBOptions:GetOptionsTable(config_store)
+	options.args.profile.order = 2
 	AceConfig.RegisterOptionsTable(self, "CoolLine", options)
 
 	-- Register the slash command to open the config GUI
@@ -742,6 +862,6 @@ end
 function CoolLineAddon:OnEnable()
 	if main_ui then
 		main_ui:Enable()
+		DEFAULT_CHAT_FRAME:AddMessage(COOLINE_LOADED_MESSAGE);
 	end
-	DEFAULT_CHAT_FRAME:AddMessage(COOLINE_LOADED_MESSAGE);
 end

@@ -314,7 +314,7 @@ function TimelineUI:Enable()
 
 	frame:SetClampedToScreen(true)
 	frame:SetMovable(true)
-	self:UpdatePositionOffset(Addon.GetConfigTimelineXOffset(), Addon.GetConfigTimelineYOffset())
+	self:UpdatePositionOffset(Addon:GetConfigTimelineXOffset(), Addon:GetConfigTimelineYOffset())
 
 	-- Background texture
 	local background = frame:CreateTexture(nil, 'ARTWORK')
@@ -344,8 +344,8 @@ function TimelineUI:Enable()
 		frame:StopMovingOrSizing()
 		local x, y = frame:GetCenter()
 		local ux, uy = UIParent:GetCenter()
-		Addon.SetConfigTimelineXOffset(floor(x - ux + 0.5))
-		Addon.SetConfigTimelineYOffset(floor(y - uy + 0.5))
+		Addon:SetConfigTimelineXOffset(floor(x - ux + 0.5))
+		Addon:SetConfigTimelineYOffset(floor(y - uy + 0.5))
 		state.dragging = false
 	end
 	frame:RegisterForDrag('LeftButton')
@@ -363,12 +363,12 @@ function TimelineUI:Enable()
 		if not IsAltKeyDown() and state.dragging then
 			OnDragStop()
 		end
-		self:Update(false, Addon.GetConfigVertical(), Addon.GetConfigReversed(),
-			Addon.GetConfigAlphaActive(), Addon.GetConfigAlphaInactive())
+		self:Update(false, Addon:GetConfigVertical(), Addon:GetConfigReversed(),
+			Addon:GetConfigAlphaActive(), Addon:GetConfigAlphaInactive())
 	end)
 
-	local vertical = Addon.GetConfigVertical()
-	local reversed = Addon.GetConfigReversed()
+	local vertical = Addon:GetConfigVertical()
+	local reversed = Addon:GetConfigReversed()
 
 	-- 7 Text labels for time markers
 	local first_label = TimeLabel:New(overlay, '0', 0)
@@ -396,15 +396,15 @@ function TimelineUI:Enable()
 		if event == 'VARIABLES_LOADED' or event == 'BAG_UPDATE_COOLDOWN' or event == 'SPELL_UPDATE_COOLDOWN' then
 			self:FindAllCooldown()
 			self:Update(
-				true, Addon.GetConfigVertical(), Addon.GetConfigReversed(),
-				Addon.GetConfigAlphaActive(), Addon.GetConfigAlphaInactive()
+				true, Addon:GetConfigVertical(), Addon:GetConfigReversed(),
+				Addon:GetConfigAlphaActive(), Addon:GetConfigAlphaInactive()
 			)
 		end
 	end)
 
 	self:UpdateAlignment(
         vertical, reversed,
-        Addon.GetConfigAlphaActive(), Addon.GetConfigAlphaInactive()
+        Addon:GetConfigAlphaActive(), Addon:GetConfigAlphaInactive()
 	)
 	self:FindAllCooldown()
 	frame:Show()
@@ -445,16 +445,16 @@ end
 ---@param vertical boolean
 function TimelineUI:UpdateVertical(vertical)
 	self:UpdateAlignment(
-		vertical, Addon.GetConfigReversed(),
-        Addon.GetConfigAlphaActive(), Addon.GetConfigAlphaInactive()
+		vertical, Addon:GetConfigReversed(),
+        Addon:GetConfigAlphaActive(), Addon:GetConfigAlphaInactive()
 	)
 end
 
 ---@param reversed boolean
 function TimelineUI:UpdateReversed(reversed)
 	self:UpdateAlignment(
-		Addon.GetConfigVertical(), reversed,
-        Addon.GetConfigAlphaActive(), Addon.GetConfigAlphaInactive()
+		Addon:GetConfigVertical(), reversed,
+        Addon:GetConfigAlphaActive(), Addon:GetConfigAlphaInactive()
 	)
 end
 
@@ -463,11 +463,11 @@ function TimelineUI:UpdatePositionOffset(x_offset, y_offset)
 end
 
 function TimelineUI:UpdateXOffset(x_offset)
-	self._frame:SetPoint('Center', x_offset, Addon.GetConfigTimelineYOffset())
+	self._frame:SetPoint('Center', x_offset, Addon:GetConfigTimelineYOffset())
 end
 
 function TimelineUI:UpdateYOffset(y_offset)
-	self._frame:SetPoint('Center', Addon.GetConfigTimelineXOffset(), y_offset)
+	self._frame:SetPoint('Center', Addon:GetConfigTimelineXOffset(), y_offset)
 end
 
 ---@param forced boolean
@@ -564,12 +564,12 @@ end
 
 ---@param alpha_active number
 function TimelineUI:UpdateAlphaActive(alpha_active)
-	self._frame:SetAlpha(self.state.is_active and alpha_active or Addon.GetConfigAlphaInactive())
+	self._frame:SetAlpha(self.state.is_active and alpha_active or Addon:GetConfigAlphaInactive())
 end
 
 ---@param alpha_inactive number
 function TimelineUI:UpdateAlphaInactive(alpha_inactive)
-	self._frame:SetAlpha(self.state.is_active and Addon.GetConfigAlphaActive() or alpha_inactive)
+	self._frame:SetAlpha(self.state.is_active and Addon:GetConfigAlphaActive() or alpha_inactive)
 end
 
 ---@param name string

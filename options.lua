@@ -78,22 +78,24 @@ end
 ---@generic T
 ---@param store_path string a dot-separated path to the db entry
 ---@param func_on_set? fun(new_value: T, old_value: T, ui: TimelineUI, config: table): nil
----@return fun(): T getter_func
----@return fun(new_value: T): nil setter_func
+---@return fun(addon): T getter_func
+---@return fun(addon, new_value: T): nil setter_func
 function Addon:GenConfigGetterSetter(store_path, func_on_set)
-	local function getter_func()
-		if self.config_store then
-			return GetTableValueByPath(self.config_store, store_path)
+	local function getter_func(addon)
+		if addon.config_store then
+			return GetTableValueByPath(addon.config_store, store_path)
 		end
 	end
 
-	local function setter_func(new_value)
-		if self.main_ui and self.config_store then
-			local old_value = GetTableValueByPath(self.config_store, store_path)
+	local function setter_func(addon, new_value)
+        local main_ui = addon.main_ui
+        local config_store = addon.config_store
+		if main_ui and config_store then
+			local old_value = GetTableValueByPath(config_store, store_path)
 			if func_on_set then
-				func_on_set(new_value, old_value, self.main_ui, self.config_store)
+				func_on_set(new_value, old_value, main_ui, config_store)
 			end
-			SetTableValueByPath(self.config_store, store_path, new_value)
+			SetTableValueByPath(config_store, store_path, new_value)
 		end
 	end
 
@@ -167,16 +169,16 @@ local options = {
 					desc = "Makes the timeline vertical or not",
 					type = "toggle",
 					order = 1,
-					get = function(info) return Addon.GetConfigVertical() end,
-					set = function(info, value) Addon.SetConfigVertical(value) end,
+					get = function(info) return Addon:GetConfigVertical() end,
+					set = function(info, value) Addon:SetConfigVertical(value) end,
 				},
 				reversed = {
 					name = "Reversed?",
 					desc = "Makes the timeline reversed or not",
 					type = "toggle",
 					order = 2,
-					get = function(info) return Addon.GetConfigReversed() end,
-					set = function(info, value) Addon.SetConfigReversed(value) end,
+					get = function(info) return Addon:GetConfigReversed() end,
+					set = function(info, value) Addon:SetConfigReversed(value) end,
 				},
 				timeline_x_offset = {
 					name = "Timeline X Offset",
@@ -188,8 +190,8 @@ local options = {
 					softMax = 1000,
 					step = 1,
 					order = 3,
-					get = function(info) return Addon.GetConfigTimelineXOffset() end,
-					set = function(info, value) Addon.SetConfigTimelineXOffset(value) end,
+					get = function(info) return Addon:GetConfigTimelineXOffset() end,
+					set = function(info, value) Addon:SetConfigTimelineXOffset(value) end,
 				},
 				timeline_y_offset = {
 					name = "Timeline Y Offset",
@@ -201,8 +203,8 @@ local options = {
 					softMax = 1000,
 					step = 1,
 					order = 4,
-					get = function(info) return Addon.GetConfigTimelineYOffset() end,
-					set = function(info, value) Addon.SetConfigTimelineYOffset(value) end,
+					get = function(info) return Addon:GetConfigTimelineYOffset() end,
+					set = function(info, value) Addon:SetConfigTimelineYOffset(value) end,
 				},
 				alpha_active = {
 					name = "Alpha when active",
@@ -212,8 +214,8 @@ local options = {
 					max = 1.0,
 					step = 0.05,
                     order = 5,
-                    get = function(info) return Addon.GetConfigAlphaActive() end,
-					set = function(info, value) Addon.SetConfigAlphaActive(value) end,
+                    get = function(info) return Addon:GetConfigAlphaActive() end,
+					set = function(info, value) Addon:SetConfigAlphaActive(value) end,
 				},
 				alpha_inactive = {
 					name = "Alpha when inactive",
@@ -223,8 +225,8 @@ local options = {
 					max = 1.0,
 					step = 0.05,
 					order = 6,
-					get = function(info) return Addon.GetConfigAlphaInactive() end,
-					set = function(info, value) Addon.SetConfigAlphaInactive(value) end,
+					get = function(info) return Addon:GetConfigAlphaInactive() end,
+					set = function(info, value) Addon:SetConfigAlphaInactive(value) end,
 				},
 				debugging = {
 					name = "Debugging?",

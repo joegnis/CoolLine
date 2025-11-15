@@ -1,10 +1,3 @@
-local AceAddon = LibStub("AceAddon-3.0")
-local AceConfig = LibStub("AceConfig-3.0")
-local AceConfigDialog = LibStub("AceConfigDialog-3.0")
-local AceConsole = LibStub("AceConsole-3.0")
-local AceDB = LibStub("AceDB-3.0")
-local AceDBOptions = LibStub("AceDBOptions-3.0")
-
 local COOLLINE_SETTINGS = {
 	width = 360,
 	height = 18,
@@ -28,13 +21,9 @@ local COOLLINE_SETTINGS = {
 	'Cooline loaded: move the location of the cooline bar by holding <alt> while dragging it with left mouse button.'
 }
 
-CoolLineAddon = AceAddon:NewAddon("CoolLine")
----@type TimelineUI?
-local main_ui = nil
----@type table?
-local config_store = nil
-local debugging = false
+local Addon = LibStub("AceAddon-3.0"):GetAddon("CoolLine")
 
+-- Helper Functions
 local function GetKeysSortedByValue(tbl, sortFunction)
 	local keys = {}
 	for key in pairs(tbl) do
@@ -66,74 +55,6 @@ local function GetServerTimeStr()
 	return string.format("%02d:%02d:%s", hour, minute, seconds)
 end
 
----Splits a string by a separator
----@param str string
----@param pat string separator pattern
----@return string[]
-local function SplitString(str, pat)
-	local t = {}
-	-- Escape every special pattern character
-	pat = string.gsub(pat, "([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
-	local fpat = "(.-)" .. pat
-	local last_end = 1
-	local s, e, cap = string.find(str, fpat, 1)
-	while s do
-		if s ~= 1 or cap ~= "" then
-			table.insert(t, cap)
-		end
-		last_end = e + 1
-		s, e, cap = string.find(str, fpat, last_end)
-	end
-	if last_end <= string.len(str) then
-		cap = string.sub(str, last_end)
-		table.insert(t, cap)
-	end
-	return t
-end
-
----@param table_ table
----@param path string a dot-separated path string to a key
----@return any # The value at the end of the path, or nil if the path doesn't exist
-local function GetTableValueByPath(table_, path)
-	local cur_table = table_
-	local path_list = SplitString(path, ".")
-
-	for _, key in ipairs(path_list) do
-		if cur_table == nil or type(cur_table) ~= "table" then
-			return nil
-		end
-
-		cur_table = cur_table[key]
-	end
-
-	return cur_table
-end
-
----@param table_ table
----@param path string a dot-separated path string to a key
----@param value any
----@return boolean
-local function SetTableValueByPath(table_, path, value)
-	local cur_table = table_
-	local path_list = SplitString(path, ".")
-
-	-- Iterate until the second last key
-	for i = 1, table.getn(path_list) - 1 do
-		local key = path_list[i]
-		if cur_table[key] == nil or type(cur_table[key]) ~= "table" then
-			-- Can't iterate through a non-table value
-			-- Does not create intermediate tables
-			return false
-		end
-		cur_table = cur_table[key]
-	end
-
-	local last_key = path_list[table.getn(path_list)]
-	cur_table[last_key] = value
-
-	return true
-end
-
 ---@param msg string
 local function PrintDebug(msg)
 	if debugging then
@@ -141,84 +62,6 @@ local function PrintDebug(msg)
 	end
 end
 
--- Configuration
----Generates getter and setter function for an entry in db
----@generic T
----@param store_path string a dot-separated path to the db entry
----@param func_on_set? fun(new_value: T, old_value: T, ui: TimelineUI, config: table): nil
----@return fun(): T getter_func
----@return fun(new_value: T): nil setter_func
-local function GenConfigGetterSetter(store_path, func_on_set)
-	local function getter_func()
-		if config_store then
-			return GetTableValueByPath(config_store, store_path)
-		end
-	end
-
-	local function setter_func(new_value)
-		if main_ui and config_store then
-			local old_value = GetTableValueByPath(config_store, store_path)
-			if func_on_set then
-				func_on_set(new_value, old_value, main_ui, config_store)
-			end
-			SetTableValueByPath(config_store, store_path, new_value)
-		end
-	end
-
-	return getter_func, setter_func
-end
-
-local GetConfigVertical, SetConfigVertical = GenConfigGetterSetter("profile.general.vertical",
-	function(new_value, old_value, ui, config)
-		if new_value ~= old_value then
-			ui:UpdateVertical(new_value)
-		end
-	end
-)
-
-local GetConfigReversed, SetConfigReversed = GenConfigGetterSetter("profile.general.reversed",
-	function(new_value, old_value, ui, config)
-		if new_value ~= old_value then
-			ui:UpdateReversed(new_value)
-		end
-	end
-)
-
-local GetConfigTimelineXOffset, SetConfigTimelineXOffset = GenConfigGetterSetter(
-	"profile.general.timeline_x_offset",
-	function(new_value, old_value, ui, config)
-		if new_value ~= old_value then
-			ui:UpdateXOffset(new_value)
-		end
-	end
-)
-
-local GetConfigTimelineYOffset, SetConfigTimelineYOffset = GenConfigGetterSetter(
-	"profile.general.timeline_y_offset",
-	function(new_value, old_value, ui, config)
-		if new_value ~= old_value then
-			ui:UpdateYOffset(new_value)
-		end
-	end
-)
-
-local GetConfigAlphaActive, SetConfigAlphaActive = GenConfigGetterSetter(
-	"profile.general.alpha_active",
-	function(new_value, old_value, ui, config)
-		if new_value ~= old_value then
-			ui:UpdateAlphaActive(new_value)
-		end
-	end
-)
-
-local GetConfigAlphaInactive, SetConfigAlphaInactive = GenConfigGetterSetter(
-	"profile.general.alpha_inactive",
-	function(new_value, old_value, ui, config)
-		if new_value ~= old_value then
-			ui:UpdateAlphaInactive(new_value)
-		end
-	end
-)
 
 ---@class FramePool
 ---@field name string
@@ -230,7 +73,7 @@ local FramePool = {}
 ---@return FramePool
 function FramePool:New(pool_name)
 	return setmetatable({
-		name = pool_name or (StringToID(CoolLineAddon.name) .. "FramePool"),
+		name = pool_name or (StringToID(Addon.name) .. "FramePool"),
 		_next_frame_id = 1,
 		_pool = {},
 	}, { __index = self })
@@ -471,7 +314,7 @@ function TimelineUI:Enable()
 
 	frame:SetClampedToScreen(true)
 	frame:SetMovable(true)
-	self:UpdatePositionOffset(GetConfigTimelineXOffset(), GetConfigTimelineYOffset())
+	self:UpdatePositionOffset(Addon.GetConfigTimelineXOffset(), Addon.GetConfigTimelineYOffset())
 
 	-- Background texture
 	local background = frame:CreateTexture(nil, 'ARTWORK')
@@ -501,8 +344,8 @@ function TimelineUI:Enable()
 		frame:StopMovingOrSizing()
 		local x, y = frame:GetCenter()
 		local ux, uy = UIParent:GetCenter()
-		SetConfigTimelineXOffset(floor(x - ux + 0.5))
-		SetConfigTimelineYOffset(floor(y - uy + 0.5))
+		Addon.SetConfigTimelineXOffset(floor(x - ux + 0.5))
+		Addon.SetConfigTimelineYOffset(floor(y - uy + 0.5))
 		state.dragging = false
 	end
 	frame:RegisterForDrag('LeftButton')
@@ -520,12 +363,12 @@ function TimelineUI:Enable()
 		if not IsAltKeyDown() and state.dragging then
 			OnDragStop()
 		end
-		self:Update(false, GetConfigVertical(), GetConfigReversed(),
-			GetConfigAlphaActive(), GetConfigAlphaInactive())
+		self:Update(false, Addon.GetConfigVertical(), Addon.GetConfigReversed(),
+			Addon.GetConfigAlphaActive(), Addon.GetConfigAlphaInactive())
 	end)
 
-	local vertical = GetConfigVertical()
-	local reversed = GetConfigReversed()
+	local vertical = Addon.GetConfigVertical()
+	local reversed = Addon.GetConfigReversed()
 
 	-- 7 Text labels for time markers
 	local first_label = TimeLabel:New(overlay, '0', 0)
@@ -553,13 +396,16 @@ function TimelineUI:Enable()
 		if event == 'VARIABLES_LOADED' or event == 'BAG_UPDATE_COOLDOWN' or event == 'SPELL_UPDATE_COOLDOWN' then
 			self:FindAllCooldown()
 			self:Update(
-				true, GetConfigVertical(), GetConfigReversed(),
-				GetConfigAlphaActive(), GetConfigAlphaInactive()
+				true, Addon.GetConfigVertical(), Addon.GetConfigReversed(),
+				Addon.GetConfigAlphaActive(), Addon.GetConfigAlphaInactive()
 			)
 		end
 	end)
 
-	self:UpdateAlignment(vertical, reversed, GetConfigAlphaActive(), GetConfigAlphaInactive())
+	self:UpdateAlignment(
+        vertical, reversed,
+        Addon.GetConfigAlphaActive(), Addon.GetConfigAlphaInactive()
+	)
 	self:FindAllCooldown()
 	frame:Show()
 end
@@ -598,14 +444,18 @@ end
 
 ---@param vertical boolean
 function TimelineUI:UpdateVertical(vertical)
-    self:UpdateAlignment(vertical, GetConfigReversed(),
-		GetConfigAlphaActive(), GetConfigAlphaInactive())
+	self:UpdateAlignment(
+		vertical, Addon.GetConfigReversed(),
+        Addon.GetConfigAlphaActive(), Addon.GetConfigAlphaInactive()
+	)
 end
 
 ---@param reversed boolean
 function TimelineUI:UpdateReversed(reversed)
-    self:UpdateAlignment(GetConfigVertical(), reversed,
-		GetConfigAlphaActive(), GetConfigAlphaInactive())
+	self:UpdateAlignment(
+		Addon.GetConfigVertical(), reversed,
+        Addon.GetConfigAlphaActive(), Addon.GetConfigAlphaInactive()
+	)
 end
 
 function TimelineUI:UpdatePositionOffset(x_offset, y_offset)
@@ -613,11 +463,11 @@ function TimelineUI:UpdatePositionOffset(x_offset, y_offset)
 end
 
 function TimelineUI:UpdateXOffset(x_offset)
-	self._frame:SetPoint('Center', x_offset, GetConfigTimelineYOffset())
+	self._frame:SetPoint('Center', x_offset, Addon.GetConfigTimelineYOffset())
 end
 
 function TimelineUI:UpdateYOffset(y_offset)
-	self._frame:SetPoint('Center', GetConfigTimelineXOffset(), y_offset)
+	self._frame:SetPoint('Center', Addon.GetConfigTimelineXOffset(), y_offset)
 end
 
 ---@param forced boolean
@@ -714,12 +564,12 @@ end
 
 ---@param alpha_active number
 function TimelineUI:UpdateAlphaActive(alpha_active)
-	self._frame:SetAlpha(self.state.is_active and alpha_active or GetConfigAlphaInactive())
+	self._frame:SetAlpha(self.state.is_active and alpha_active or Addon.GetConfigAlphaInactive())
 end
 
 ---@param alpha_inactive number
 function TimelineUI:UpdateAlphaInactive(alpha_inactive)
-	self._frame:SetAlpha(self.state.is_active and GetConfigAlphaActive() or alpha_inactive)
+	self._frame:SetAlpha(self.state.is_active and Addon.GetConfigAlphaActive() or alpha_inactive)
 end
 
 ---@param name string
@@ -897,122 +747,16 @@ function TimelineUI:PlaceOnBar(region, offset, anchor_point, vertical, reversed)
 	end
 end
 
-local options = {
-	name = "CoolLine",
-	type = "group",
-	args = {
-		general = {
-			name = "General",
-			type = "group",
-			order = 1,
-			args = {
-				vertical = {
-					name = "Vertical?",
-					desc = "Makes the timeline vertical or not",
-					type = "toggle",
-					order = 1,
-					get = function(info) return GetConfigVertical() end,
-					set = function(info, value) SetConfigVertical(value) end,
-				},
-				reversed = {
-					name = "Reversed?",
-					desc = "Makes the timeline reversed or not",
-					type = "toggle",
-					order = 2,
-					get = function(info) return GetConfigReversed() end,
-					set = function(info, value) SetConfigReversed(value) end,
-				},
-				timeline_x_offset = {
-					name = "Timeline X Offset",
-					desc = "Offset of the timeline on the X axis",
-					type = "range",
-					min = -2000,
-					max = 2000,
-					softMin = -1000,
-					softMax = 1000,
-					step = 1,
-					order = 3,
-					get = function(info) return GetConfigTimelineXOffset() end,
-					set = function(info, value) SetConfigTimelineXOffset(value) end,
-				},
-				timeline_y_offset = {
-					name = "Timeline Y Offset",
-					desc = "Offset of the timeline on the Y axis",
-					type = "range",
-					min = -2000,
-					max = 2000,
-					softMin = -1000,
-					softMax = 1000,
-					step = 1,
-					order = 4,
-					get = function(info) return GetConfigTimelineYOffset() end,
-					set = function(info, value) SetConfigTimelineYOffset(value) end,
-				},
-				alpha_active = {
-					name = "Alpha when active",
-					desc = "Alpha of the timeline when there is any active cooldown.",
-					type = "range",
-					min = 0.0,
-					max = 1.0,
-					step = 0.05,
-                    order = 5,
-                    get = function(info) return GetConfigAlphaActive() end,
-					set = function(info, value) SetConfigAlphaActive(value) end,
-				},
-				alpha_inactive = {
-					name = "Alpha when inactive",
-					desc = "Alpha of the timeline when there are no active cooldowns.\nSet to 0 to hide.",
-					type = "range",
-					min = 0.0,
-					max = 1.0,
-					step = 0.05,
-					order = 6,
-					get = function(info) return GetConfigAlphaInactive() end,
-					set = function(info, value) SetConfigAlphaInactive(value) end,
-				},
-				debugging = {
-					name = "Debugging?",
-					desc = "Enables debugging mode",
-					type = "toggle",
-					order = 10,
-					get = function(info) return debugging end,
-					set = function(info, value) debugging = value end,
-				}
-			}
-		}
-	}
-}
-
-local defaults = {
-	profile = {
-		general = {
-			vertical = false,
-			reversed = false,
-			timeline_x_offset = 0,
-			timeline_y_offset = -240,
-			alpha_active = 1.0,
-			alpha_inactive = 0.5,
-			debugging = false
-		}
-	}
-}
-
-function CoolLineAddon:OnInitialize()
-	config_store = AceDB:New("CoolLineDB", defaults)
-	main_ui = TimelineUI:New()
-	options.args.profile = AceDBOptions:GetOptionsTable(config_store)
-	options.args.profile.order = 2
-	AceConfig.RegisterOptionsTable(self, "CoolLine", options)
-
-	-- Register the slash command to open the config GUI
-	AceConsole:RegisterChatCommand("coolline", function()
-		AceConfigDialog:Open("CoolLine")
-	end)
+function Addon:OnInitialize()
+	self.main_ui = TimelineUI:New()
+	Addon:SetupOptions()
 end
 
-function CoolLineAddon:OnEnable()
-	if main_ui then
-		main_ui:Enable()
+function Addon:OnEnable()
+	if self.main_ui then
+		self.main_ui:Enable()
 		DEFAULT_CHAT_FRAME:AddMessage(COOLLINE_SETTINGS.loaded_message);
+    else
+		error("CoolLineAddon: should've called OnInitialize first")
 	end
 end

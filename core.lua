@@ -10,7 +10,7 @@ CoolLineAddon = AceAddon:NewAddon("CoolLine")
 local main_ui = nil
 ---@type table?
 local config_store = nil
-local is_debugging = false
+local debugging = false
 
 local function GetKeysSortedByValue(tbl, sortFunction)
 	local keys = {}
@@ -113,7 +113,7 @@ end
 
 ---@param msg string
 local function PrintDebug(msg)
-	if is_debugging then
+	if debugging then
 		DEFAULT_CHAT_FRAME:AddMessage(format("[%s][CoolLine] %s", GetServerTimeStr(), msg))
 	end
 end
@@ -142,13 +142,13 @@ local function GenConfigGetterSetter(store_path, func_on_set)
 	return getter_func, setter_func
 end
 
-local GetConfigIsVertical, SetConfigIsVertical = GenConfigGetterSetter("profile.general.is_vertical",
+local GetConfigVertical, SetConfigVertical = GenConfigGetterSetter("profile.general.vertical",
 	function(value, ui, config)
 		ui:SetIsVertical(value)
 	end
 )
 
-local GetConfigIsReversed, SetConfigIsReversed = GenConfigGetterSetter("profile.general.is_reversed",
+local GetConfigReversed, SetConfigReversed = GenConfigGetterSetter("profile.general.reversed",
 	function(value, ui, config)
 		ui:SetIsReversed(value)
 	end
@@ -315,18 +315,18 @@ function TimeLabel:GetRegion()
 	return self._font_string
 end
 
----@param is_vertical boolean
----@param is_reversed boolean
-function TimeLabel:SetFirstLabelAlignment(is_vertical, is_reversed)
-	if is_vertical then
+---@param vertical boolean
+---@param reversed boolean
+function TimeLabel:SetFirstLabelAlignment(vertical, reversed)
+	if vertical then
 		self._font_string:SetJustifyH("Center")
-		if is_reversed then
+		if reversed then
 			self.anchor_point = "Top"
 		else
 			self.anchor_point = "Bottom"
 		end
 	else
-		if is_reversed then
+		if reversed then
 			self.anchor_point = "Right"
 			self._font_string:SetJustifyH("Right")
 		else
@@ -336,18 +336,18 @@ function TimeLabel:SetFirstLabelAlignment(is_vertical, is_reversed)
 	end
 end
 
----@param is_vertical boolean
----@param is_reversed boolean
-function TimeLabel:SetLastLabelAlignment(is_vertical, is_reversed)
-	if is_vertical then
+---@param vertical boolean
+---@param reversed boolean
+function TimeLabel:SetLastLabelAlignment(vertical, reversed)
+	if vertical then
 		self._font_string:SetJustifyH("Center")
-		if is_reversed then
+		if reversed then
 			self.anchor_point = "Bottom"
 		else
 			self.anchor_point = "Top"
 		end
 	else
-		if is_reversed then
+		if reversed then
 			self.anchor_point = "Left"
 			self._font_string:SetJustifyH("Left")
 		else
@@ -386,8 +386,8 @@ function TimelineUI:New()
 		len_segment = COOLINE_THEME.width / 6,
 		icon_size = COOLINE_THEME.height + COOLINE_THEME.icon_outset * 2,
 		state = {
-			is_vertical = false,
-			is_reversed = false,
+			vertical = false,
+			reversed = false,
 			is_dragging = false,
 			x = 0,
 			y = -240,
@@ -455,17 +455,17 @@ function TimelineUI:Enable()
 		if not IsAltKeyDown() and state.is_dragging then
 			OnDragStop()
 		end
-		self:Update(false, GetConfigIsVertical(), GetConfigIsReversed())
+		self:Update(false, GetConfigVertical(), GetConfigReversed())
 	end)
 
-	local is_vertical = GetConfigIsVertical()
-	local is_reversed = GetConfigIsReversed()
+	local vertical = GetConfigVertical()
+	local reversed = GetConfigReversed()
 
 	-- 7 Text labels for time markers
 	local first_label = TimeLabel:New(overlay, '0', 0)
 	local last_label = TimeLabel:New(overlay, '6m', self.len_segment * 6)
-	first_label:SetFirstLabelAlignment(is_vertical, is_reversed)
-	last_label:SetLastLabelAlignment(is_vertical, is_reversed)
+	first_label:SetFirstLabelAlignment(vertical, reversed)
+	last_label:SetLastLabelAlignment(vertical, reversed)
 	self._first_label = first_label
 	self._last_label = last_label
 	self._time_labels = {
@@ -477,7 +477,7 @@ function TimelineUI:Enable()
 		TimeLabel:New(overlay, '2m', self.len_segment * 5),
 		last_label
 	}
-	self:UpdateTimeLabelPositions(is_vertical, is_reversed)
+	self:UpdateTimeLabelPositions(vertical, reversed)
 
 	-- Events
 	frame:RegisterEvent('VARIABLES_LOADED')
@@ -486,36 +486,36 @@ function TimelineUI:Enable()
 	frame:SetScript('OnEvent', function()
 		if event == 'VARIABLES_LOADED' or event == 'BAG_UPDATE_COOLDOWN' or event == 'SPELL_UPDATE_COOLDOWN' then
 			self:FindAllCooldown()
-			self:Update(true, is_vertical, is_reversed)
+			self:Update(true, vertical, reversed)
 		end
 	end)
 
-	self:SetAlignment(is_vertical, is_reversed, true)
+	self:SetAlignment(vertical, reversed, true)
 	self:FindAllCooldown()
 	frame:Show()
 end
 
----@param is_vertical boolean
----@param is_reversed boolean
-function TimelineUI:UpdateTimeLabelPositions(is_vertical, is_reversed)
+---@param vertical boolean
+---@param reversed boolean
+function TimelineUI:UpdateTimeLabelPositions(vertical, reversed)
 	for _, label in ipairs(self._time_labels) do
 		local region = label:GetRegion()
 		region:ClearAllPoints()
-		self:PlaceOnBar(region, label.pos_on_bar, label.anchor_point, is_vertical, is_reversed)
+		self:PlaceOnBar(region, label.pos_on_bar, label.anchor_point, vertical, reversed)
 	end
 end
 
----@param is_vertical boolean
----@param is_reversed boolean
+---@param vertical boolean
+---@param reversed boolean
 ---@param forced boolean|nil
-function TimelineUI:SetAlignment(is_vertical, is_reversed, forced)
-	local changed = GetConfigIsVertical() ~= is_vertical or GetConfigIsReversed() ~= is_reversed
+function TimelineUI:SetAlignment(vertical, reversed, forced)
+	local changed = GetConfigVertical() ~= vertical or GetConfigReversed() ~= reversed
 	if changed or forced then
-		self._first_label:SetFirstLabelAlignment(is_vertical, is_reversed)
-		self._last_label:SetLastLabelAlignment(is_vertical, is_reversed)
-		self:UpdateTimeLabelPositions(is_vertical, is_reversed)
+		self._first_label:SetFirstLabelAlignment(vertical, reversed)
+		self._last_label:SetLastLabelAlignment(vertical, reversed)
+		self:UpdateTimeLabelPositions(vertical, reversed)
 
-		if is_vertical then
+		if vertical then
 			self._frame:SetWidth(COOLINE_THEME.height)
 			self._frame:SetHeight(COOLINE_THEME.width)
 			self._background:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1)
@@ -525,24 +525,24 @@ function TimelineUI:SetAlignment(is_vertical, is_reversed, forced)
 			self._background:SetTexCoord(0, 1, 0, 1)
 		end
 
-		self:Update(true, is_vertical, is_reversed)
+		self:Update(true, vertical, reversed)
 	end
 end
 
----@param is_vertical boolean
-function TimelineUI:SetIsVertical(is_vertical)
-	self:SetAlignment(is_vertical, GetConfigIsReversed(), true)
+---@param vertical boolean
+function TimelineUI:SetIsVertical(vertical)
+	self:SetAlignment(vertical, GetConfigReversed(), true)
 end
 
----@param is_reversed boolean
-function TimelineUI:SetIsReversed(is_reversed)
-	self:SetAlignment(GetConfigIsVertical(), is_reversed, true)
+---@param reversed boolean
+function TimelineUI:SetIsReversed(reversed)
+	self:SetAlignment(GetConfigVertical(), reversed, true)
 end
 
 ---@param forced boolean
----@param is_vertical boolean
----@param is_reversed boolean
-function TimelineUI:Update(forced, is_vertical, is_reversed)
+---@param vertical boolean
+---@param reversed boolean
+function TimelineUI:Update(forced, vertical, reversed)
 	local state = self.state
 	local now = GetTime()
 
@@ -570,20 +570,20 @@ function TimelineUI:Update(forced, is_vertical, is_reversed)
 			state.is_active = true
 			self:ClearAura(name)
 		elseif time_left < 0 then
-			self:UpdateAura(aura, 0, to_shuffle_level, is_vertical, is_reversed)
+			self:UpdateAura(aura, 0, to_shuffle_level, vertical, reversed)
 			-- Adds fading effect after expired
 			aura:SetAlpha(max(1 + time_left, 0))
 		elseif time_left < 0.3 then
 			-- icon_size + icon_size * (0.3 - time_left) / 0.2
 			local size = floor(self.icon_size * (0.5 - time_left) * 5)
 			aura:SetSize(size)
-			self:UpdateAura(aura, self.len_segment * time_left, to_shuffle_level, is_vertical, is_reversed)
+			self:UpdateAura(aura, self.len_segment * time_left, to_shuffle_level, vertical, reversed)
 		elseif time_left < 1 then
-			self:UpdateAura(aura, self.len_segment * time_left, to_shuffle_level, is_vertical, is_reversed)
+			self:UpdateAura(aura, self.len_segment * time_left, to_shuffle_level, vertical, reversed)
 		elseif time_left < 3 then
 			if now - aura.time_last_update > 0.02 or forced then
                 self:UpdateAura(aura, self.len_segment * (time_left + 1) * 0.5, to_shuffle_level,
-					is_vertical, is_reversed)
+					vertical, reversed)
 				aura.time_last_update = now
 			end
 		elseif time_left < 10 then
@@ -591,33 +591,33 @@ function TimelineUI:Update(forced, is_vertical, is_reversed)
 			if now - aura.time_last_update > threshold or forced then
 				-- 2 + (time_left - 3) / 7
                 self:UpdateAura(aura, self.len_segment * (time_left + 11) * 0.14286, to_shuffle_level,
-					is_vertical, is_reversed)
+					vertical, reversed)
 				aura.time_last_update = now
 			end
 		elseif time_left < 30 then
 			if now - aura.time_last_update > 0.06 or forced then
 				-- 3 + (time_left - 10) / 20
                 self:UpdateAura(aura, self.len_segment * (time_left + 50) * 0.05, to_shuffle_level,
-					is_vertical, is_reversed)
+					vertical, reversed)
 				aura.time_last_update = now
 			end
 		elseif time_left < 120 then
 			if now - aura.time_last_update > 0.18 or forced then
 				-- 4 + (time_left - 30) / 90
                 self:UpdateAura(aura, self.len_segment * (time_left + 330) * 0.011111, to_shuffle_level,
-					is_vertical, is_reversed)
+					vertical, reversed)
 				aura.time_last_update = now
 			end
 		elseif time_left < 360 then
 			if now - aura.time_last_update > 1.2 or forced then
 				-- 5 + (time_left - 120) / 240
                 self:UpdateAura(aura, self.len_segment * (time_left + 1080) * 0.0041667, to_shuffle_level,
-					is_vertical, is_reversed)
+					vertical, reversed)
 				aura:SetAlpha(COOLINE_THEME.active_alpha)
 				aura.time_last_update = now
 			end
 		else
-			self:UpdateAura(aura, 6 * self.len_segment, to_shuffle_level, is_vertical, is_reversed)
+			self:UpdateAura(aura, 6 * self.len_segment, to_shuffle_level, vertical, reversed)
 		end
 	end
 	self._frame:SetAlpha(state.is_active and COOLINE_THEME.active_alpha or COOLINE_THEME.inactive_alpha)
@@ -670,9 +670,9 @@ end
 ---@param aura CooldownAura
 ---@param position number
 ---@param to_shuffle_level boolean
----@param is_vertical boolean
----@param is_reversed boolean
-function TimelineUI:UpdateAura(aura, position, to_shuffle_level, is_vertical, is_reversed)
+---@param vertical boolean
+---@param reversed boolean
+function TimelineUI:UpdateAura(aura, position, to_shuffle_level, vertical, reversed)
 	if aura.end_time - GetTime() < COOLINE_THEME.threshold then
 		-- Expiring-soon cooldowns: sort by end_time in descending order
 		-- so the most urgent ones appear on top
@@ -690,7 +690,7 @@ function TimelineUI:UpdateAura(aura, position, to_shuffle_level, is_vertical, is
 		end
 	end
 
-	self:PlaceOnBar(aura.frame, position, nil, is_vertical, is_reversed)
+	self:PlaceOnBar(aura.frame, position, nil, vertical, reversed)
 end
 
 function TimelineUI:ClearAura(name)
@@ -776,21 +776,21 @@ end
 ---@param region Region
 ---@param offset number
 ---@param anchor_point FramePoint|nil
----@param is_vertical boolean
----@param is_reversed boolean
-function TimelineUI:PlaceOnBar(region, offset, anchor_point, is_vertical, is_reversed)
+---@param vertical boolean
+---@param reversed boolean
+function TimelineUI:PlaceOnBar(region, offset, anchor_point, vertical, reversed)
 	if not anchor_point then
 		anchor_point = 'Center'
 	end
 
-	if is_vertical then
-		if is_reversed then
+	if vertical then
+		if reversed then
 			region:SetPoint(anchor_point, self._frame, 'Top', 0, -offset)
 		else
 			region:SetPoint(anchor_point, self._frame, 'Bottom', 0, offset)
 		end
 	else
-		if is_reversed then
+		if reversed then
 			region:SetPoint(anchor_point, self._frame, 'Right', -offset, 0)
 		else
 			region:SetPoint(anchor_point, self._frame, 'Left', offset, 0)
@@ -807,29 +807,29 @@ local options = {
 			type = "group",
 			order = 1,
 			args = {
-				is_vertical = {
+				vertical = {
 					name = "Vertical?",
 					desc = "Makes the timeline vertical or not",
 					type = "toggle",
 					order = 1,
-					get = function(info) return GetConfigIsVertical() end,
-					set = function(info, value) SetConfigIsVertical(value) end,
+					get = function(info) return GetConfigVertical() end,
+					set = function(info, value) SetConfigVertical(value) end,
 				},
-				is_reversed = {
+				reversed = {
 					name = "Reversed?",
 					desc = "Makes the timeline reversed or not",
 					type = "toggle",
 					order = 2,
-					get = function(info) return GetConfigIsReversed() end,
-					set = function(info, value) SetConfigIsReversed(value) end,
+					get = function(info) return GetConfigReversed() end,
+					set = function(info, value) SetConfigReversed(value) end,
 				},
-				is_debugging = {
+				debugging = {
 					name = "Debugging?",
 					desc = "Enables debugging mode",
 					type = "toggle",
 					order = 10,
-					get = function(info) return is_debugging end,
-					set = function(info, value) is_debugging = value end,
+					get = function(info) return debugging end,
+					set = function(info, value) debugging = value end,
 				}
 			}
 		}
@@ -839,9 +839,9 @@ local options = {
 local defaults = {
 	profile = {
 		general = {
-			is_vertical = false,
-			is_reversed = false,
-			is_debugging = false
+			vertical = false,
+			reversed = false,
+			debugging = false
 		}
 	}
 }

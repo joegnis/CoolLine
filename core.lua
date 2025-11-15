@@ -20,13 +20,12 @@ local COOLLINE_SETTINGS = {
 	font_color = { 1, 1, 1, 0.8 },
 	spell_color = { 0.8, 0.4, 0, 1 },
 	no_spell_color = { 0, 0, 0, 1 },
-	inactive_alpha = 0.5,
-	active_alpha = 1.0,
 	threshold = 3.0,
-    cooldown_blacklist = {
+	cooldown_blacklist = {
 		"hearthstone"
 	},
-	loaded_message = 'Cooline loaded: move the location of the cooline bar by holding <alt> while dragging it with left mouse button.'
+	loaded_message =
+	'Cooline loaded: move the location of the cooline bar by holding <alt> while dragging it with left mouse button.'
 }
 
 CoolLineAddon = AceAddon:NewAddon("CoolLine")
@@ -199,6 +198,24 @@ local GetConfigTimelineYOffset, SetConfigTimelineYOffset = GenConfigGetterSetter
 	function(new_value, old_value, ui, config)
 		if new_value ~= old_value then
 			ui:UpdateYOffset(new_value)
+		end
+	end
+)
+
+local GetConfigAlphaActive, SetConfigAlphaActive = GenConfigGetterSetter(
+	"profile.general.alpha_active",
+	function(new_value, old_value, ui, config)
+		if new_value ~= old_value then
+			ui:UpdateAlphaActive(new_value)
+		end
+	end
+)
+
+local GetConfigAlphaInactive, SetConfigAlphaInactive = GenConfigGetterSetter(
+	"profile.general.alpha_inactive",
+	function(new_value, old_value, ui, config)
+		if new_value ~= old_value then
+			ui:UpdateAlphaInactive(new_value)
 		end
 	end
 )
@@ -503,7 +520,8 @@ function TimelineUI:Enable()
 		if not IsAltKeyDown() and state.dragging then
 			OnDragStop()
 		end
-		self:Update(false, GetConfigVertical(), GetConfigReversed())
+		self:Update(false, GetConfigVertical(), GetConfigReversed(),
+			GetConfigAlphaActive(), GetConfigAlphaInactive())
 	end)
 
 	local vertical = GetConfigVertical()
@@ -534,11 +552,14 @@ function TimelineUI:Enable()
 	frame:SetScript('OnEvent', function()
 		if event == 'VARIABLES_LOADED' or event == 'BAG_UPDATE_COOLDOWN' or event == 'SPELL_UPDATE_COOLDOWN' then
 			self:FindAllCooldown()
-			self:Update(true, vertical, reversed)
+			self:Update(
+				true, GetConfigVertical(), GetConfigReversed(),
+				GetConfigAlphaActive(), GetConfigAlphaInactive()
+			)
 		end
 	end)
 
-	self:UpdateAlignment(vertical, reversed)
+	self:UpdateAlignment(vertical, reversed, GetConfigAlphaActive(), GetConfigAlphaInactive())
 	self:FindAllCooldown()
 	frame:Show()
 end
@@ -555,7 +576,9 @@ end
 
 ---@param vertical boolean
 ---@param reversed boolean
-function TimelineUI:UpdateAlignment(vertical, reversed)
+---@param alpha_active number
+---@param alpha_inactive number
+function TimelineUI:UpdateAlignment(vertical, reversed, alpha_active, alpha_inactive)
 	self._first_label:SetFirstLabelAlignment(vertical, reversed)
 	self._last_label:SetLastLabelAlignment(vertical, reversed)
 	self:UpdateTimeLabelPositions(vertical, reversed)
@@ -570,17 +593,19 @@ function TimelineUI:UpdateAlignment(vertical, reversed)
 		self._background:SetTexCoord(0, 1, 0, 1)
 	end
 
-	self:Update(true, vertical, reversed)
+	self:Update(true, vertical, reversed, alpha_active, alpha_inactive)
 end
 
 ---@param vertical boolean
 function TimelineUI:UpdateVertical(vertical)
-	self:UpdateAlignment(vertical, GetConfigReversed())
+    self:UpdateAlignment(vertical, GetConfigReversed(),
+		GetConfigAlphaActive(), GetConfigAlphaInactive())
 end
 
 ---@param reversed boolean
 function TimelineUI:UpdateReversed(reversed)
-	self:UpdateAlignment(GetConfigVertical(), reversed)
+    self:UpdateAlignment(GetConfigVertical(), reversed,
+		GetConfigAlphaActive(), GetConfigAlphaInactive())
 end
 
 function TimelineUI:UpdatePositionOffset(x_offset, y_offset)
@@ -598,7 +623,9 @@ end
 ---@param forced boolean
 ---@param vertical boolean
 ---@param reversed boolean
-function TimelineUI:Update(forced, vertical, reversed)
+---@param alpha_active number
+---@param alpha_inactive number
+function TimelineUI:Update(forced, vertical, reversed, alpha_active, alpha_inactive)
 	local state = self.state
 	local now = GetTime()
 
@@ -669,14 +696,30 @@ function TimelineUI:Update(forced, vertical, reversed)
 				-- 5 + (time_left - 120) / 240
 				self:UpdateAura(aura, self.len_segment * (time_left + 1080) * 0.0041667, to_shuffle_level,
 					vertical, reversed)
-				aura:SetAlpha(COOLLINE_SETTINGS.active_alpha)
+				aura:SetAlpha(alpha_active)
 				aura.time_last_update = now
 			end
 		else
 			self:UpdateAura(aura, 6 * self.len_segment, to_shuffle_level, vertical, reversed)
 		end
 	end
-	self._frame:SetAlpha(state.is_active and COOLLINE_SETTINGS.active_alpha or COOLLINE_SETTINGS.inactive_alpha)
+	self:UpdateAlpha(alpha_active, alpha_inactive)
+end
+
+---@param alpha_active number
+---@param alpha_inactive number
+function TimelineUI:UpdateAlpha(alpha_active, alpha_inactive)
+	self._frame:SetAlpha(self.state.is_active and alpha_active or alpha_inactive)
+end
+
+---@param alpha_active number
+function TimelineUI:UpdateAlphaActive(alpha_active)
+	self._frame:SetAlpha(self.state.is_active and alpha_active or GetConfigAlphaInactive())
+end
+
+---@param alpha_inactive number
+function TimelineUI:UpdateAlphaInactive(alpha_inactive)
+	self._frame:SetAlpha(self.state.is_active and GetConfigAlphaActive() or alpha_inactive)
 end
 
 ---@param name string
@@ -905,6 +948,28 @@ local options = {
 					get = function(info) return GetConfigTimelineYOffset() end,
 					set = function(info, value) SetConfigTimelineYOffset(value) end,
 				},
+				alpha_active = {
+					name = "Alpha when active",
+					desc = "Alpha of the timeline when there is any active cooldown.",
+					type = "range",
+					min = 0.0,
+					max = 1.0,
+					step = 0.05,
+                    order = 5,
+                    get = function(info) return GetConfigAlphaActive() end,
+					set = function(info, value) SetConfigAlphaActive(value) end,
+				},
+				alpha_inactive = {
+					name = "Alpha when inactive",
+					desc = "Alpha of the timeline when there are no active cooldowns.\nSet to 0 to hide.",
+					type = "range",
+					min = 0.0,
+					max = 1.0,
+					step = 0.05,
+					order = 6,
+					get = function(info) return GetConfigAlphaInactive() end,
+					set = function(info, value) SetConfigAlphaInactive(value) end,
+				},
 				debugging = {
 					name = "Debugging?",
 					desc = "Enables debugging mode",
@@ -925,6 +990,8 @@ local defaults = {
 			reversed = false,
 			timeline_x_offset = 0,
 			timeline_y_offset = -240,
+			alpha_active = 1.0,
+			alpha_inactive = 0.5,
 			debugging = false
 		}
 	}

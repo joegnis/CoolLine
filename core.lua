@@ -122,9 +122,9 @@ end
 ---Generates getter and setter function for an entry in db
 ---@generic T
 ---@param store_path string a dot-separated path to the db entry
----@param func_on_set fun(value: T, ui: TimelineUI, config: table): nil
+---@param func_on_set fun(new_value: T, old_value: T, ui: TimelineUI, config: table): nil
 ---@return fun(): T getter_func
----@return fun(value: T): nil setter_func
+---@return fun(new_value: T): nil setter_func
 local function GenConfigGetterSetter(store_path, func_on_set)
 	local function getter_func()
 		if config_store then
@@ -132,10 +132,11 @@ local function GenConfigGetterSetter(store_path, func_on_set)
 		end
 	end
 
-	local function setter_func(value)
+	local function setter_func(new_value)
 		if main_ui and config_store then
-			func_on_set(value, main_ui, config_store)
-			SetTableValueByPath(config_store, store_path, value)
+			local old_value = GetTableValueByPath(config_store, store_path)
+			func_on_set(new_value, old_value, main_ui, config_store)
+			SetTableValueByPath(config_store, store_path, new_value)
 		end
 	end
 
@@ -143,14 +144,18 @@ local function GenConfigGetterSetter(store_path, func_on_set)
 end
 
 local GetConfigVertical, SetConfigVertical = GenConfigGetterSetter("profile.general.vertical",
-	function(value, ui, config)
-		ui:SetIsVertical(value)
+	function(new_value, old_value, ui, config)
+		if new_value ~= old_value then
+			ui:UpdateVertical(new_value)
+		end
 	end
 )
 
 local GetConfigReversed, SetConfigReversed = GenConfigGetterSetter("profile.general.reversed",
-	function(value, ui, config)
-		ui:SetIsReversed(value)
+	function(new_value, old_value, ui, config)
+		if new_value ~= old_value then
+			ui:UpdateReversed(new_value)
+		end
 	end
 )
 
@@ -490,7 +495,7 @@ function TimelineUI:Enable()
 		end
 	end)
 
-	self:SetAlignment(vertical, reversed, true)
+	self:UpdateAlignment(vertical, reversed)
 	self:FindAllCooldown()
 	frame:Show()
 end
@@ -507,36 +512,32 @@ end
 
 ---@param vertical boolean
 ---@param reversed boolean
----@param forced boolean|nil
-function TimelineUI:SetAlignment(vertical, reversed, forced)
-	local changed = GetConfigVertical() ~= vertical or GetConfigReversed() ~= reversed
-	if changed or forced then
-		self._first_label:SetFirstLabelAlignment(vertical, reversed)
-		self._last_label:SetLastLabelAlignment(vertical, reversed)
-		self:UpdateTimeLabelPositions(vertical, reversed)
+function TimelineUI:UpdateAlignment(vertical, reversed)
+	self._first_label:SetFirstLabelAlignment(vertical, reversed)
+	self._last_label:SetLastLabelAlignment(vertical, reversed)
+	self:UpdateTimeLabelPositions(vertical, reversed)
 
-		if vertical then
-			self._frame:SetWidth(COOLINE_THEME.height)
-			self._frame:SetHeight(COOLINE_THEME.width)
-			self._background:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1)
-		else
-			self._frame:SetWidth(COOLINE_THEME.width)
-			self._frame:SetHeight(COOLINE_THEME.height)
-			self._background:SetTexCoord(0, 1, 0, 1)
-		end
-
-		self:Update(true, vertical, reversed)
+	if vertical then
+		self._frame:SetWidth(COOLINE_THEME.height)
+		self._frame:SetHeight(COOLINE_THEME.width)
+		self._background:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1)
+	else
+		self._frame:SetWidth(COOLINE_THEME.width)
+		self._frame:SetHeight(COOLINE_THEME.height)
+		self._background:SetTexCoord(0, 1, 0, 1)
 	end
+
+	self:Update(true, vertical, reversed)
 end
 
 ---@param vertical boolean
-function TimelineUI:SetIsVertical(vertical)
-	self:SetAlignment(vertical, GetConfigReversed(), true)
+function TimelineUI:UpdateVertical(vertical)
+	self:UpdateAlignment(vertical, GetConfigReversed())
 end
 
 ---@param reversed boolean
-function TimelineUI:SetIsReversed(reversed)
-	self:SetAlignment(GetConfigVertical(), reversed, true)
+function TimelineUI:UpdateReversed(reversed)
+	self:UpdateAlignment(GetConfigVertical(), reversed)
 end
 
 ---@param forced boolean
@@ -582,7 +583,7 @@ function TimelineUI:Update(forced, vertical, reversed)
 			self:UpdateAura(aura, self.len_segment * time_left, to_shuffle_level, vertical, reversed)
 		elseif time_left < 3 then
 			if now - aura.time_last_update > 0.02 or forced then
-                self:UpdateAura(aura, self.len_segment * (time_left + 1) * 0.5, to_shuffle_level,
+				self:UpdateAura(aura, self.len_segment * (time_left + 1) * 0.5, to_shuffle_level,
 					vertical, reversed)
 				aura.time_last_update = now
 			end
@@ -590,28 +591,28 @@ function TimelineUI:Update(forced, vertical, reversed)
 			local threshold = time_left > 4 and 0.05 or 0.02
 			if now - aura.time_last_update > threshold or forced then
 				-- 2 + (time_left - 3) / 7
-                self:UpdateAura(aura, self.len_segment * (time_left + 11) * 0.14286, to_shuffle_level,
+				self:UpdateAura(aura, self.len_segment * (time_left + 11) * 0.14286, to_shuffle_level,
 					vertical, reversed)
 				aura.time_last_update = now
 			end
 		elseif time_left < 30 then
 			if now - aura.time_last_update > 0.06 or forced then
 				-- 3 + (time_left - 10) / 20
-                self:UpdateAura(aura, self.len_segment * (time_left + 50) * 0.05, to_shuffle_level,
+				self:UpdateAura(aura, self.len_segment * (time_left + 50) * 0.05, to_shuffle_level,
 					vertical, reversed)
 				aura.time_last_update = now
 			end
 		elseif time_left < 120 then
 			if now - aura.time_last_update > 0.18 or forced then
 				-- 4 + (time_left - 30) / 90
-                self:UpdateAura(aura, self.len_segment * (time_left + 330) * 0.011111, to_shuffle_level,
+				self:UpdateAura(aura, self.len_segment * (time_left + 330) * 0.011111, to_shuffle_level,
 					vertical, reversed)
 				aura.time_last_update = now
 			end
 		elseif time_left < 360 then
 			if now - aura.time_last_update > 1.2 or forced then
 				-- 5 + (time_left - 120) / 240
-                self:UpdateAura(aura, self.len_segment * (time_left + 1080) * 0.0041667, to_shuffle_level,
+				self:UpdateAura(aura, self.len_segment * (time_left + 1080) * 0.0041667, to_shuffle_level,
 					vertical, reversed)
 				aura:SetAlpha(COOLINE_THEME.active_alpha)
 				aura.time_last_update = now

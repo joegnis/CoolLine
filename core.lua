@@ -103,7 +103,6 @@ function FramePool:Recycle(frame)
 		for _, region in ipairs({ frame:GetRegions() }) do
 			if region:GetObjectType() == "Texture" then
 				region:SetTexture(nil)
-				break
 			end
 		end
 		tinsert(self._pool, frame)
@@ -597,22 +596,21 @@ function TimelineUI:NewAura(name, texture, start_time, duration, is_spell)
 		end
 	end
 
-	local aura = auras[name]
-	if aura then
-		PrintDebug("TimelineUI: updating an aura with the same name " .. name)
-		aura:Update(name, self.icon_size, texture, end_time, is_spell)
-	else
-		PrintDebug("TimelineUI: creating a new aura " .. name)
-		aura = CooldownAura:New(
-			self._frame_pool:Acquire(self._border),
-			name,
-			self.icon_size,
-			texture,
-			end_time,
-			is_spell
-		)
-		auras[name] = aura
+	if auras[name] then
+		self:ClearAura(name)
+		PrintDebug("TimelineUI: cleared an existing aura with the same name " .. name)
 	end
+
+	local aura = CooldownAura:New(
+		self._frame_pool:Acquire(self._border),
+		name,
+		self.icon_size,
+		texture,
+		end_time,
+		is_spell
+	)
+	auras[name] = aura
+	PrintDebug("TimelineUI: created a new aura " .. name)
 	return aura
 end
 
